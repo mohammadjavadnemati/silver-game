@@ -1,0 +1,11 @@
+C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Engine\bin\Debug\net10.0\Silver.Engine.deps.json
+C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Engine\bin\Debug\net10.0\Silver.Engine.dll
+C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Engine\bin\Debug\net10.0\Silver.Engine.pdb
+C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Engine\obj\Debug\net10.0\Silver.Engine.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Engine\obj\Debug\net10.0\Silver.Engine.AssemblyInfoInputs.cache
+C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Engine\obj\Debug\net10.0\Silver.Engine.AssemblyInfo.cs
+C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Engine\obj\Debug\net10.0\Silver.Engine.csproj.CoreCompileInputs.cache
+C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Engine\obj\Debug\net10.0\Silver.Engine.dll
+C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Engine\obj\Debug\net10.0\refint\Silver.Engine.dll
+C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Engine\obj\Debug\net10.0\Silver.Engine.pdb
+C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Engine\obj\Debug\net10.0\ref\Silver.Engine.dll
