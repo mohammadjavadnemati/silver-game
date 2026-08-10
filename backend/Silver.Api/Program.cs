@@ -1,21 +1,22 @@
 using Silver.Api.Hubs;
+using Silver.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// CORS برای اینکه فرانت (روی پورت دیگه) بتونه وصل شه
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
         policy
-            .WithOrigins("http://localhost:3000") // آدرس Next.js dev server
+            .WithOrigins("http://localhost:3000")
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .AllowCredentials(); // SignalR بهش نیاز داره
+            .AllowCredentials();
     });
 });
 
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<RoomService>();
 
 var app = builder.Build();
 

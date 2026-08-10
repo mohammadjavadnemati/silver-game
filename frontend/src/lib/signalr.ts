@@ -2,20 +2,26 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as signalR from "@microsoft/signalr";
+import type { RoomInfo } from "./types";
 
 const HUB_URL = "http://localhost:5000/hubs/game";
 
-export type EchoMessage = {
-  playerName: string;
-  message: string;
-  timestamp: string;
-};
+function getOrCreatePlayerId(): string {
+  if (typeof window === "undefined") return "";
+  const key = "silver_player_id";
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(key, id);
+  }
+  return id;
+}
 
 export function useGameHubConnection() {
   const connectionRef = useRef<signalR.HubConnection | null>(null);
   const [status, setStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
-  const [serverGreeting, setServerGreeting] = useState<string | null>(null);
-  const [echoLog, setEchoLog] = useState<EchoMessage[]>([]);
+  const [room, setRoom] = useState<RoomInfo | null>(null);
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   useEffect(() => {
     const connection = new signalR.HubConnectionBuilder()
@@ -24,12 +30,8 @@ export function useGameHubConnection() {
       .configureLogging(signalR.LogLevel.Information)
       .build();
 
-    connection.on("ServerMessage", (msg: string) => {
-      setServerGreeting(msg);
-    });
-
-    connection.on("ReceiveEcho", (playerName: string, message: string, timestamp: string) => {
-      setEchoLog((prev) => [...prev, { playerName, message, timestamp }]);
+    connection.on("RoomUpdated", (updatedRoom: RoomInfo) => {
+      setRoom(updatedRoom);
     });
 
     connection.onreconnecting(() => setStatus("connecting"));
@@ -52,9 +54,25 @@ export function useGameHubConnection() {
     };
   }, []);
 
-  const sendEcho = useCallback((playerName: string, message: string) => {
-    connectionRef.current?.invoke("SendEcho", playerName, message).catch(console.error);
+  const createRoom = useCallback(async (playerName: string) => {
+    const playerId = getOrCreatePlayerId();
+    const result = await connectionRef.current?.invoke("CreateRoom", playerId, playerName);
+    setRoom(result as RoomInfo);
+    return result as RoomInfo;
   }, []);
 
-  return { status, serverGreeting, echoLog, sendEcho };
+  const joinRoom = useCallback(async (roomCode: string, playerName: string) => {
+    const playerId = getOrCreatePlayerId();
+    setJoinError(null);
+    const result = await connectionRef.current?.invoke("JoinRoom", roomCode, playerId, playerName);
+    const typed = result as { success: boolean; error?: string; room?: RoomInfo };
+    if (!typed.success) {
+      setJoinError(typed.error ?? "خطای ناشناخته");
+      return null;
+    }
+    setRoom(typed.room ?? null);
+    return typed.room;
+  }, []);
+
+  return { status, room, joinError, createRoom, joinRoom };
 }
