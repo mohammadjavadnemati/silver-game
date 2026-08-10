@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "dgSpecHash": "oStYf334Bt0=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\injakala\\Desktop\\programingprojects\\silver-game\\backend\\Silver.Api\\Silver.Api.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\injakala\\.nuget\\packages\\microsoft.aspnetcore.signalr\\1.2.0\\microsoft.aspnetcore.signalr.1.2.0.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1510",
+      "level": "Warning",
+      "message": "PackageReference Microsoft.AspNetCore.SignalR will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.",
+      "projectPath": "C:\\Users\\injakala\\Desktop\\programingprojects\\silver-game\\backend\\Silver.Api\\Silver.Api.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\injakala\\Desktop\\programingprojects\\silver-game\\backend\\Silver.Api\\Silver.Api.csproj",
+      "libraryId": "Microsoft.AspNetCore.SignalR",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    }
+  ]
+}
