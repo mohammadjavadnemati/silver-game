@@ -1,10 +1,12 @@
 namespace Silver.Engine;
 
+using Silver.Engine.Cards;
 public enum RoundEndReason
 {
     None,
     Call,
-    DrawPileEmpty
+    DrawPileEmpty,
+    BothVillagersRevealed
 }
 
 public enum GamePhase
@@ -46,4 +48,15 @@ public class SilverGameState
 
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    // این خطوط رو به کلاس SilverGameState اضافه کن:
+
+    public bool SideActionUsedThisTurn { get; set; } = false;
+
+    // وقتی discard-triggered ability منتظر resolve شدنه:
+    public string? PendingAbilityPlayerId { get; set; }
+    public Cards.CardType? PendingAbilityCardType { get; set; }
+    public string? PendingAbilityCardId { get; set; }
+    // این‌ها جایگزین دیکشنری‌های داخل موتور می‌شن:
+    public SilverCard? PendingDrawnCard { get; set; }
+    public List<SilverCard>? PendingRascalChoiceOptions { get; set; }
 }

@@ -1,4 +1,4 @@
-namespace Silver.Engine;
+namespace Silver.Engine.Cards;
 
 using Silver.Engine.Cards;
 
