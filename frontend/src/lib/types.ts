@@ -37,6 +37,7 @@ export type GameStateView = {
   gameId: string;
   phase: GamePhase;
   roundNumber: number;
+  initialPeekDeadlineUtc: string;
   currentPlayerId: string;
   playerIdsInTurnOrder: string[];
   cumulativeScores: Record<string, number>;
@@ -52,7 +53,8 @@ export type GameStateView = {
   pendingDrawnCard: CardView | null;
   villages: Record<string, VillageView>;
   winnerPlayerId: string | null;
-  myInitialPeeksRemaining: number;
+  InitialPeekDeadlineUtc: string | null;   // ← جدید
+  myInitialPeeksRemaining: number; 
 };
 
 export const CARD_NAMES_FA: Record<CardType, string> = {
@@ -71,3 +73,38 @@ export const CARD_NAMES_FA: Record<CardType, string> = {
   Robber: "دزد",
   Doppelganger: "بدل",
 };
+export const CARD_IMAGES: Record<CardType, string> = {
+  Villager: "/cards/Villager.jpg",
+  Squire: "/cards/Squire.jpg",
+  Empath: "/cards/Empath.jpg",
+  Bodyguard: "/cards/Bodyguard.jpg",
+  Rascal: "/cards/Rascal.jpg",
+  Exposer: "/cards/Exposer.jpg",
+  Revealer: "/cards/Revealer.jpg",
+  Beholder: "/cards/Beholder.jpg",
+  ApprenticeSeer: "/cards/apprenticeseer.jpg",
+  Seer: "/cards/Seer.jpg",
+  Master: "/cards/Master.jpg",
+  Witch: "/cards/Witch.jpg",
+  Robber: "/cards/Robber.jpg",
+  Doppelganger: "/cards/Doppelganger.jpg",
+};
+
+export const CARD_BACK_IMAGE = "/cards/back.png";
+
+// توضیح توانایی هر کارت — متن دلخواه خودتو جای این‌ها بذار
+export const CARD_DESCRIPTIONS_FA: Record<CardType, string> = { 
+  Villager: "با رو شدن هر دو مزرعه‌دار، راند فوراً تمام می‌شود.", 
+  Squire: "به ازای هر سرباز جوان رو‌شده، یک کارت کنار دسته اصلی رو می‌شود.", 
+  Empath: "یک کارت پشت‌ورو از روستای خودت را مخفیانه ببین.", 
+  Bodyguard: "این کارت را روی کارت دیگری بگذار تا از آن محافظت کند.", 
+  Rascal: "به ازای هر شیطون رو‌شده، یک کارت اضافه از دسته بکش و یکی را انتخاب کن.", 
+  Exposer: "یک کارت پشت‌ورو از روستای خودت را رو کن.", 
+  Revealer: "یک کارت پشت‌ورو از هر روستایی را رو کن.", 
+  Beholder: "دو کارت پشت‌ورو از روستای خودت را مخفیانه ببین.",
+  ApprenticeSeer: "یک کارت پشت‌ورو از روستای بازیکن دیگر را مخفیانه ببین.", 
+  Seer: "یک کارت پشت‌ورو را مخفیانه ببین.",
+  Master: "هر کارت دلخواه از دسته دورریختنی را برای تعویض انتخاب کن.", 
+  Witch: "کارت بالای دسته را مخفیانه ببین و با کارت روستای خودت یا بازیکن دیگر تعویض کن.", 
+  Robber: "یک کارت از روستای بازیکن دیگر را با یکی از کارت‌های خودت تعویض کن.", 
+  Doppelganger: "هنگام تعویض چندتایی، می‌تواند با هر عددی هم‌عدد محسوب شود.", };

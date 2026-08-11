@@ -30,3 +30,4 @@ C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Api\obj\
 C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Api\bin\Debug\net10.0\Silver.Engine.dll
 C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Api\bin\Debug\net10.0\Silver.Engine.pdb
 C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Api\obj\Debug\net10.0\Silver.Api.csproj.Up2Date
+C:\Users\injakala\Desktop\programingprojects\silver-game\backend\Silver.Api\obj\Debug\net10.0\Silver.Api.sourcelink.json

@@ -73,6 +73,7 @@ public class GameSessionService
             gameId = state.GameId,
             phase = state.Phase.ToString(),
             roundNumber = state.RoundNumber,
+            initialPeekDeadlineUtc = state.InitialPeekDeadlineUtc,
             currentPlayerId = state.CurrentPlayerId,
             playerIdsInTurnOrder = state.PlayerIdsInTurnOrder,
             cumulativeScores = state.CumulativeScores,

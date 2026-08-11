@@ -398,4 +398,22 @@ public class SilverGameEngineTests
         var third = engine.ApplyAction(state, new InitialCardPeekAction { PlayerId = notCurrentPlayer, OwnCardId = village.Cards[2].CardId });
         Assert.False(third.Success); // سهمیه تموم شده
     }
+    [Fact]
+    public void InitialPeek_RejectedAfterWindowExpires()
+    {
+        var engine = CreateEngine();
+        var state = engine.StartGame("g1", new List<string> { "p1", "p2" });
+
+        // شبیه‌سازی گذشت زمان
+        state.InitialPeekDeadlineUtc = DateTime.UtcNow.AddSeconds(-1);
+
+        var village = state.Villages[state.PlayerIdsInTurnOrder[0]];
+        var result = engine.ApplyAction(state, new InitialCardPeekAction
+        {
+            PlayerId = state.PlayerIdsInTurnOrder[0],
+            OwnCardId = village.Cards[0].CardId
+        });
+
+        Assert.False(result.Success);
+    }
 }

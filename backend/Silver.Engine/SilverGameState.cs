@@ -41,6 +41,9 @@ public class SilverGameState
 
     public Dictionary<string, int> InitialPeeksUsedByPlayer { get; init; } = new();
     public const int MaxInitialPeeksPerRound = 2;
+    public const int InitialPeekDurationSeconds = 10;
+
+    public DateTime InitialPeekDeadlineUtc { get; set; }
     // Call
     public bool HasBeenCalled { get; set; } = false;
     public string? CallerPlayerId { get; set; }
@@ -61,5 +64,8 @@ public class SilverGameState
     // این‌ها جایگزین دیکشنری‌های داخل موتور می‌شن:
     public SilverCard? PendingDrawnCard { get; set; }
     public List<SilverCard>? PendingRascalChoiceOptions { get; set; }
+    // اضافه کن (به‌جای اینکه فقط شمارنده داشته باشیم):
+    // public DateTime? InitialPeekWindowEndsAt { get; set; }
+    // public const int InitialPeekWindowSeconds = 10;
 
 }
