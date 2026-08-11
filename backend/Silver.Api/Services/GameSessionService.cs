@@ -98,7 +98,8 @@ public class GameSessionService
                     cards = kv.Value.Cards.Select(c => MapCard(c, kv.Key == forPlayerId)).ToList()
                 }
             ),
-            winnerPlayerId = state.WinnerPlayerId
+            winnerPlayerId = state.WinnerPlayerId,
+            myInitialPeeksRemaining = SilverGameState.MaxInitialPeeksPerRound - state.InitialPeeksUsedByPlayer.GetValueOrDefault(forPlayerId, 0)
         };
     }
 }

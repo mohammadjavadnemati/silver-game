@@ -39,6 +39,8 @@ public class SilverGameState
 
     public string? AmuletHolderPlayerId { get; set; } // چه کسی آمیولت رو برای این راند در اختیار داره
 
+    public Dictionary<string, int> InitialPeeksUsedByPlayer { get; init; } = new();
+    public const int MaxInitialPeeksPerRound = 2;
     // Call
     public bool HasBeenCalled { get; set; } = false;
     public string? CallerPlayerId { get; set; }
@@ -59,4 +61,5 @@ public class SilverGameState
     // این‌ها جایگزین دیکشنری‌های داخل موتور می‌شن:
     public SilverCard? PendingDrawnCard { get; set; }
     public List<SilverCard>? PendingRascalChoiceOptions { get; set; }
+
 }

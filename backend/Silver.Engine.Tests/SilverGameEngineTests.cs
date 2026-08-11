@@ -380,4 +380,22 @@ public class SilverGameEngineTests
         Assert.Equal(Cards.CardType.Robber, state.PendingAbilityCardType); // این باید pending بمونه، نه فوراً نوبت عوض بشه
         Assert.Equal(playerId, state.CurrentPlayerId); // نوبت هنوز عوض نشده
     }
+    [Fact]
+    public void InitialPeek_AllowsUpToTwoPeeksIndependentOfTurn()
+    {
+        var engine = CreateEngine();
+        var state = engine.StartGame("g1", new List<string> { "p1", "p2" });
+
+        var notCurrentPlayer = state.PlayerIdsInTurnOrder.First(id => id != state.CurrentPlayerId);
+        var village = state.Villages[notCurrentPlayer];
+
+        var first = engine.ApplyAction(state, new InitialCardPeekAction { PlayerId = notCurrentPlayer, OwnCardId = village.Cards[0].CardId });
+        Assert.True(first.Success); // حتی اگه نوبتش نیست، کار می‌کنه
+
+        var second = engine.ApplyAction(state, new InitialCardPeekAction { PlayerId = notCurrentPlayer, OwnCardId = village.Cards[1].CardId });
+        Assert.True(second.Success);
+
+        var third = engine.ApplyAction(state, new InitialCardPeekAction { PlayerId = notCurrentPlayer, OwnCardId = village.Cards[2].CardId });
+        Assert.False(third.Success); // سهمیه تموم شده
+    }
 }

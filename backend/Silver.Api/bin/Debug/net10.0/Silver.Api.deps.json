@@ -7,14 +7,30 @@
   "targets": {
     ".NETCoreApp,Version=v10.0": {
       "Silver.Api/1.0.0": {
+        "dependencies": {
+          "Silver.Engine": "1.0.0"
+        },
         "runtime": {
           "Silver.Api.dll": {}
+        }
+      },
+      "Silver.Engine/1.0.0": {
+        "runtime": {
+          "Silver.Engine.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
         }
       }
     }
   },
   "libraries": {
     "Silver.Api/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "Silver.Engine/1.0.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

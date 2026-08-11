@@ -1,3 +1,5 @@
+using Silver.Api.Models;     // ← این خط برای Room لازمه
+using Silver.Engine.Cards;   // ← این خط برای CardType در MapAction لازمه (چون از Cards.CardType استفاده کردیم)
 using Microsoft.AspNetCore.SignalR;
 using Silver.Api.Services;
 using Silver.Engine;
@@ -85,7 +87,7 @@ public class GameHub : Hub
     private async Task BroadcastGameState(
         string roomCode,
         SilverGameState state,
-        Dictionary<string, Cards.CardType>? privateInfoForActingPlayer = null,
+        Dictionary<string, CardType>? privateInfoForActingPlayer = null,
         string? forPlayerId = null)
     {
         var room = _roomService.GetRoom(roomCode);
@@ -95,7 +97,19 @@ public class GameHub : Hub
         {
             var privateInfo = player.PlayerId == forPlayerId ? privateInfoForActingPlayer : null;
             var view = _gameSessionService.BuildPlayerFacingState(state, player.PlayerId, privateInfo);
+            // myInitialPeeksRemaining = SilverGameState.MaxInitialPeeksPerRound - state.InitialPeeksUsedByPlayer.GetValueOrDefault(forPlayerId, 0);
             await Clients.Client(player.ConnectionId).SendAsync("GameStateUpdated", view);
+            if (player.PlayerId == forPlayerId && privateInfo != null && privateInfo.Count > 0)
+            {
+                var revealPayload = privateInfo.ToDictionary(kv => kv.Key, kv => new { type = kv.Value.ToString(), value = (int)kv.Value });
+                await Clients.Client(player.ConnectionId).SendAsync("PrivateCardsRevealed", revealPayload);
+            }
+            // در BroadcastGameState، بعد از فرستادن GameStateUpdated:
+            if (player.PlayerId == forPlayerId && privateInfo != null && privateInfo.Count > 0)
+            {
+                var revealPayload = privateInfo.ToDictionary(kv => kv.Key, kv => new { type = kv.Value.ToString(), value = (int)kv.Value });
+                await Clients.Client(player.ConnectionId).SendAsync("PrivateCardsRevealed", revealPayload);
+            }
         }
     }
 
@@ -131,7 +145,7 @@ public class GameHub : Hub
             "SwapDiscard" => new SwapDiscardCardWithOwnAction { PlayerId = playerId, DiscardCardId = S("discardCardId"), OwnCardIdsToReplace = L("ownCardIds") },
             "ChooseFromRascalDraw" => new ChooseFromRascalDrawAction { PlayerId = playerId, ChosenCardId = S("chosenCardId") },
             "UseEmpath" => new UseEmpathAction { PlayerId = playerId, EmpathCardId = S("empathCardId"), OwnCardIdToPeek = S("ownCardIdToPeek") },
-            "MoveBodyguard" => new MoveBodyguardAction { PlayerId = playerId, TargetOwnCardId = p.ContainsKey("targetOwnCardId") ? S("targetOwnCardId") : null },
+            "MoveBodyguard" => new MoveBodyguardAction { PlayerId = playerId, BodyguardCardId = S("bodyguardCardId"), TargetOwnCardId = p.ContainsKey("targetOwnCardId") ? S("targetOwnCardId") : null },
             "ExposerReveal" => new ExposerRevealOwnCardAction { PlayerId = playerId, OwnCardIdToReveal = S("ownCardIdToReveal") },
             "BeholderPeek" => new BeholderPeekAction { PlayerId = playerId, FirstOwnCardId = S("firstOwnCardId"), SecondOwnCardId = S("secondOwnCardId") },
             "RevealerReveal" => new RevealerRevealCardAction { PlayerId = playerId, TargetPlayerId = S("targetPlayerId"), TargetCardId = S("targetCardId") },
@@ -141,6 +155,7 @@ public class GameHub : Hub
             "WitchSwap" => new WitchSwapAction { PlayerId = playerId, TargetPlayerId = S("targetPlayerId"), TargetCardIds = L("targetCardIds") },
             "RobberSwap" => new RobberSwapAction { PlayerId = playerId, TargetPlayerId = S("targetPlayerId"), TargetCardId = S("targetCardId"), OwnCardId = S("ownCardId") },
             "SkipAbility" => new SkipCardAbilityAction { PlayerId = playerId },
+            "InitialPeek" => new InitialCardPeekAction { PlayerId = playerId, OwnCardId = S("ownCardId") },
             _ => null
         };
     }

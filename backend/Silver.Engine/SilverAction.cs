@@ -112,3 +112,7 @@ public class RobberSwapAction : SilverAction
     public required string TargetCardId { get; init; }
     public required string OwnCardId { get; init; }
 }
+public class InitialCardPeekAction : SilverAction
+{
+    public required string OwnCardId { get; init; }
+}

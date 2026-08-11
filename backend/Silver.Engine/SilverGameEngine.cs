@@ -45,6 +45,9 @@ public class SilverGameEngine
 
         state.DiscardPile.Clear();
         state.SquireRevealedCards.Clear();
+        state.InitialPeeksUsedByPlayer.Clear();
+        foreach (var playerId in state.PlayerIdsInTurnOrder)
+            state.InitialPeeksUsedByPlayer[playerId] = 0;
 
         foreach (var village in state.Villages.Values)
         {
@@ -74,6 +77,9 @@ public class SilverGameEngine
         {
             state.CurrentPlayerId = state.AmuletHolderPlayerId ?? state.PlayerIdsInTurnOrder[0];
         }
+        state.InitialPeeksUsedByPlayer.Clear();
+        foreach (var playerId in state.PlayerIdsInTurnOrder)
+            state.InitialPeeksUsedByPlayer[playerId] = 0;
 
         state.HasBeenCalled = false;
         state.CallerPlayerId = null;
@@ -129,6 +135,9 @@ public class SilverGameEngine
 
     public SilverActionResult ApplyAction(SilverGameState state, SilverAction action)
     {
+        if (action is InitialCardPeekAction initialPeek)
+            return HandleInitialCardPeek(state, initialPeek);
+
         var precheck = ValidateCommonTurnPreconditions(state, action);
         if (precheck != null) return precheck;
 
@@ -507,6 +516,30 @@ public class SilverGameEngine
 
         AdvanceTurn(state);
         return SilverActionResult.Ok(state);
+    }
+    private SilverActionResult HandleInitialCardPeek(SilverGameState state, InitialCardPeekAction action)
+    {
+        if (state.Phase != GamePhase.RoundInProgress && state.Phase != GamePhase.FinalTurnsAfterCall)
+            return SilverActionResult.Fail("در حال حاضر راندی در جریان نیست.");
+
+        if (!state.Villages.TryGetValue(action.PlayerId, out var village))
+            return SilverActionResult.Fail("این بازیکن در بازی نیست.");
+
+        var usedSoFar = state.InitialPeeksUsedByPlayer.GetValueOrDefault(action.PlayerId, 0);
+        if (usedSoFar >= SilverGameState.MaxInitialPeeksPerRound)
+            return SilverActionResult.Fail("سهمیه‌ی دیدن کارت‌های اولیه‌ت تموم شده.");
+
+        var card = village.Cards.FirstOrDefault(c => c.CardId == action.OwnCardId);
+        if (card == null)
+            return SilverActionResult.Fail("کارت هدف در روستای تو پیدا نشد.");
+
+        if (card.IsPubliclyRevealed)
+            return SilverActionResult.Fail("این کارت از قبل رو شده است.");
+
+        state.InitialPeeksUsedByPlayer[action.PlayerId] = usedSoFar + 1;
+
+        var privateInfo = new Dictionary<string, CardType> { [card.CardId] = card.Type };
+        return SilverActionResult.Ok(state, privateInfo);
     }
 
     // ------------------ گردش نوبت ------------------
