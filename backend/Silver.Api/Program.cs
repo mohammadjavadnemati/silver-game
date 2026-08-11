@@ -15,6 +15,9 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddSingleton<RoomService>();
+builder.Services.AddSingleton<IGameStateStore, InMemoryGameStateStore>();
+builder.Services.AddSingleton<GameSessionService>();
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<RoomService>();
 
