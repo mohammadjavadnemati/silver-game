@@ -5,6 +5,9 @@ import { useGameConnection } from "@/lib/signalr";
 import { CARD_NAMES_FA } from "@/lib/types";
 import { InitialPeekTimer } from "@/components/InitialPeekTimer";
 import { PeekableCard } from "@/components/PeekableCard";
+import { DrawPileStack } from "@/components/DrawPileStack";
+import { DrawnCardDecisionModal } from "@/components/DrawnCardDecisionModal";
+
 
 export default function Home() {
   const {
@@ -14,6 +17,8 @@ export default function Home() {
 
   const [playerName, setPlayerName] = useState("");
   const [roomCodeInput, setRoomCodeInput] = useState("");
+  const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
+  const [drawnCardInVillage, setDrawnCardInVillage] = useState(false);
   const [initialPeekTimeLeft, setInitialPeekTimeLeft] = useState(0);
   useEffect(() => {
   if (!gameState) {
@@ -114,6 +119,12 @@ export default function Home() {
   //   const timeout = setTimeout(() => setVisiblePeeks({}), msLeft);
   //   return () => clearTimeout(timeout);
   // }, [gameState?.InitialPeekDeadlineUtc]);
+  useEffect(() => {
+    setSelectedCardIds([]);
+  }, [gameState?.currentPlayerId]);
+  useEffect(() => {
+    setDrawnCardInVillage(false);
+  }, [gameState?.pendingDrawnCard?.cardId]);
 
   const statusColor = status === "connected" ? "bg-emerald-500" : status === "connecting" ? "bg-ember" : "bg-blood-moon";
 
@@ -134,6 +145,68 @@ export default function Home() {
       ownCardId: cardId,
     });
   };
+  const isMyTurn = gameState.currentPlayerId === myPlayerId;
+  const isMe = true; // این overlay فقط برای صاحب نوبت رندر می‌شه، پس همیشه true (اسمش گمراه‌کننده‌ست، صرفاً برای type-consistency با پایین)
+  const myPendingDrawnCard = isMyTurn ? gameState.pendingDrawnCard : null;
+  
+
+  const toggleCardSelection = (cardId: string) => {
+    setSelectedCardIds((prev) =>
+      prev.includes(cardId) ? prev.filter((id) => id !== cardId) : [...prev, cardId]
+    );
+  };
+
+  const handleDrawFromDeck = () => {
+    if (!room || !isMyTurn || myPendingDrawnCard) return;
+    sendAction(room.roomCode, "DrawFromDeck", {});
+  };
+
+  // وقتی روی پایل دورریختنی کلیک می‌کنیم، بسته به وضعیت یکی از این ۳ کار انجام می‌شه
+  const handleDiscardPileClick = () => {
+    if (!room) return;
+
+    // حالت ۱: نوبتته، هیچی نکشیدی → بردار از دورریختنی
+    if (isMyTurn && !myPendingDrawnCard) {
+      sendAction(room.roomCode, "TakeFromDiscard", {});
+      return;
+    }
+
+    // حالت ۲: کارت کشیدی ولی هنوز وارد روستا نکردی → مستقیم بسوزونش
+    if (myPendingDrawnCard && !drawnCardInVillage) {
+      handleDiscardDrawnDirectly();
+      return;
+    }
+
+    // حالت ۳: کارت رو وارد روستا کردی و حالا می‌خوای کارت‌های انتخاب‌شده رو بسوزونی
+    if (myPendingDrawnCard && drawnCardInVillage) {
+      const drawnId = myPendingDrawnCard.cardId;
+      const selectedWithoutDrawn = selectedCardIds.filter((id) => id !== drawnId);
+
+      if (selectedCardIds.length === 0 || (selectedCardIds.length === 1 && selectedCardIds[0] === drawnId)) {
+        sendAction(room.roomCode, "DiscardDrawn", { drawnCardId: drawnId });
+      } else if (selectedWithoutDrawn.length > 0) {
+        sendAction(room.roomCode, "SwapDrawn", {
+          drawnCardId: drawnId,
+          ownCardIds: selectedWithoutDrawn,
+        });
+      }
+      setSelectedCardIds([]);
+      setDrawnCardInVillage(false);
+    }
+  };
+
+  const handleAddDrawnCardToVillage = () => {
+    if (myPendingDrawnCard && !drawnCardInVillage) {
+      setDrawnCardInVillage(true);
+    }
+  };
+
+  const handleDiscardDrawnDirectly = () => {
+    if (myPendingDrawnCard && !drawnCardInVillage && room) {
+      sendAction(room.roomCode, "DiscardDrawn", { drawnCardId: myPendingDrawnCard.cardId });
+    }
+  };
+
   // ترتیب نوبت رو حفظ می‌کنیم ولی می‌چرخونیم که خودت همیشه اول (=پایین صفحه) باشی
   const turnOrder =
     gameState.playerIdsInTurnOrder?.length
@@ -178,6 +251,14 @@ export default function Home() {
       <InitialPeekTimer
         endsAt={gameState.initialPeekDeadlineUtc}
       />
+      {myPendingDrawnCard && !drawnCardInVillage && (
+        <DrawnCardDecisionModal
+          card={myPendingDrawnCard}
+          onAddToVillage={handleAddDrawnCardToVillage}
+          onDiscard={handleDiscardDrawnDirectly}
+        />
+      )}
+      
 
       <div className="flex items-center justify-between">
         <h1 className="font-display text-2xl text-silver">
@@ -207,68 +288,53 @@ export default function Home() {
         )}
       </div>
 
-      <div className="flex gap-6 items-center justify-center py-4">
-        <div className="flex flex-col items-center gap-1">
-          <div
-            onClick={() =>
-              sendAction(room!.roomCode, "DrawFromDeck", {})
-            }
-            className="w-16 h-24 rounded-md bg-void border-2 border-silver/40 flex items-center justify-center cursor-pointer hover:border-ember transition relative"
-          >
-            <div className="absolute inset-0 rounded-md bg-void border border-silver/20 translate-x-1 translate-y-1 -z-10" />
-
-            <div className="absolute inset-0 rounded-md bg-void border border-silver/10 translate-x-2 translate-y-2 -z-20" />
-
-            <span className="font-mono text-silver/60 text-sm">
-              {gameState.drawPileCount}
-            </span>
-          </div>
-
-          <span className="text-[10px] text-silver/40">
-            دسته اصلی
-          </span>
-        </div>
-
-        <div className="flex flex-col items-center gap-1">
-          <div
-            onClick={() =>
-              sendAction(room!.roomCode, "TakeFromDiscard", {})
-            }
-            className="w-16 h-24 rounded-md bg-parchment text-void flex flex-col items-center justify-center cursor-pointer hover:brightness-95 transition"
-          >
-            {gameState.discardPileTop ? (
-              <>
-                <span className="font-display text-lg">
-                  {gameState.discardPileTop.value}
-                </span>
-
-                <span className="text-[9px] text-center px-1">
-                  {
-                    CARD_NAMES_FA[
-                      gameState.discardPileTop.type!
-                    ]
-                  }
-                </span>
-              </>
-            ) : (
-              "خالی"
-            )}
-          </div>
-
-          <span className="text-[10px] text-silver/40">
-            دورریختنی ({gameState.discardPileCount})
-          </span>
-        </div>
-      </div>
+      
 
       <div className="grid grid-cols-3 grid-rows-3 gap-4 items-center justify-items-center min-h-[520px]">
+        <div className="col-start-2 row-start-2 flex gap-6 items-center justify-center relative">
+          <DrawPileStack
+            count={gameState.drawPileCount}
+            onClick={handleDrawFromDeck}
+            disabled={!isMyTurn || !!myPendingDrawnCard}
+          />
+
+          <div className="flex flex-col items-center gap-1">
+            <div
+              onClick={handleDiscardPileClick}
+              className={`transition ${
+                (isMyTurn && !myPendingDrawnCard) || myPendingDrawnCard
+                  ? "cursor-pointer hover:brightness-110"
+                  : "opacity-50 cursor-not-allowed"
+              }`}
+            >
+              {gameState.discardPileTop ? (
+                <PeekableCard
+                  card={gameState.discardPileTop}
+                  canPeek={false}
+                  peekWindowOpen={false}
+                  onPeek={() => {}}
+                  peekedValue={null}
+                  size="opponent"
+                />
+              ) : (
+                <div className="w-20 h-28 sm:w-24 sm:h-32 rounded-md border border-dashed border-silver/20 flex items-center justify-center text-silver/30 text-xs">
+                  خالی
+                </div>
+              )}
+            </div>
+            <span className="text-[10px] text-silver/40">
+              {myPendingDrawnCard ? "برای سوزوندن بزن" : `دورریختنی (${gameState.discardPileCount})`}
+            </span>
+          </div>
+        </div>
+
         {orderedVillages.map((village, index) => {
   const isMe = village.playerId === myPlayerId;
   const isCurrentTurn = village.playerId === gameState.currentPlayerId;
   const position = positions[index] ?? "bottom";
 
   return (
-    <div
+  <div
       key={village.playerId}
       style={{
         borderColor: isCurrentTurn ? "#8B2E3A" : isMe ? "#C9D3DE" : "rgba(201,211,222,0.1)",
@@ -291,24 +357,67 @@ export default function Home() {
         </span>
       </div>
 
-      {isMe && canPeek && (
+      {canPeek && (
         <div className="text-xs text-ember mb-2">
           می‌تونی {gameState.myInitialPeeksRemaining} کارت دیگه رو مخفیانه ببینی (دابل‌کلیک)
         </div>
       )}
 
+      {/* {myPendingDrawnCard && !drawnCardInVillage && (
+        <div className="text-xs text-ember mb-2">
+          کارتی که کشیدی رو بکش و بنداز داخل این باکس تا وارد روستات بشه، یا روی دورریختنی بنداز تا مستقیم بسوزه.
+        </div>
+      )} */}
+      { myPendingDrawnCard && drawnCardInVillage && (
+        <div className="text-xs text-ember mb-2">
+          حالا کارت(های)ی که می‌خوای بسوزونی رو انتخاب کن (باید هم‌عدد باشن)، بعد روی دورریختنی کلیک کن.
+        </div>
+      )}
+
       <div className={`flex flex-nowrap justify-center ${isMe ? "gap-3" : "gap-1"}`}>
-        {village.cards.map((card) => (
-          <PeekableCard
-            key={card.cardId}
-            card={card}
-            canPeek={isMe && canPeek}
-            peekWindowOpen={peekWindowOpen}
-            onPeek={() => handlePeek(card.cardId)}
-            peekedValue={isMe ? visiblePeeks[card.cardId] ?? null : null}
-            size={isMe ? "own" : "opponent"}
-          />
-        ))}
+        {village.cards.map((card) => {
+          const isSelected = selectedCardIds.includes(card.cardId);
+          const canSelect = isMe && !!myPendingDrawnCard && drawnCardInVillage;
+
+          return (
+            <div
+              key={card.cardId}
+              onClick={canSelect ? () => toggleCardSelection(card.cardId) : undefined}
+              className={`transition-transform ${canSelect ? "cursor-pointer" : ""} ${
+                isSelected ? "-translate-y-3 ring-4 ring-ember rounded-md" : ""
+              }`}
+            >
+              <PeekableCard
+                card={card}
+                canPeek={isMe && canPeek}
+                peekWindowOpen={peekWindowOpen}
+                onPeek={() => handlePeek(card.cardId)}
+                peekedValue={isMe ? visiblePeeks[card.cardId] ?? null : null}
+                size={isMe ? "own" : "opponent"}
+              />
+            </div>
+          );
+        })}
+
+        {/* کارت تازه‌کشیده‌شده - وقتی وارد روستا شده */}
+        {isMe && myPendingDrawnCard && drawnCardInVillage && (
+          <div
+            onClick={() => toggleCardSelection(myPendingDrawnCard.cardId)}
+            className={`cursor-pointer transition-transform ${
+              selectedCardIds.includes(myPendingDrawnCard.cardId) ? "-translate-y-3 ring-4 ring-ember rounded-md" : ""
+            }`}
+          >
+            <PeekableCard
+              card={myPendingDrawnCard}
+              canPeek={false}
+              peekWindowOpen={false}
+              onPeek={() => {}}
+              peekedValue={null}
+              size="own"
+              forceReveal={gameState.drawnCardSource === "Discard" || gameState.drawnCardSource === "Squire"}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -28,6 +28,8 @@ type PeekableCardProps = {
   onPeek: () => void;
   peekedValue: PeekedValue | null;
   size?: CardSize;
+  forceReveal?: boolean; // ← جدید: کارت کشیده‌شده‌ی خودت، صرف‌نظر از isPubliclyRevealed، باید رو نشون داده بشه
+  onClick?: () => void;
 };
 
 export function PeekableCard({
@@ -37,17 +39,17 @@ export function PeekableCard({
   onPeek,
   peekedValue,
   size = "opponent",
+  forceReveal = false,
+  onClick,
 }: PeekableCardProps) {
   const isOwn = size === "own";
 
-  // اندازه‌ها الان واکنش‌گرا هستن: روی موبایل کوچیک‌تر، روی لپ‌تاپ/دسکتاپ بزرگ‌تر
-  // و هیچ‌وقت به خط بعد نمی‌رن چون کانتینر پدرشون flex-nowrap با اسکرول افقیه
   const boxClasses = isOwn
     ? "w-32 h-44 sm:w-40 sm:h-56 md:w-48 md:h-68 lg:w-56 lg:h-80 shrink-0"
     : "w-20 h-28 sm:w-24 sm:h-32 md:w-28 md:h-40 lg:w-32 lg:h-44 shrink-0";
 
   const publicDisplay =
-    card.isPubliclyRevealed && card.type !== null
+    (card.isPubliclyRevealed || forceReveal) && card.type !== null
       ? { type: card.type, value: card.value ?? 0 }
       : null;
 
@@ -69,9 +71,15 @@ export function PeekableCard({
     onPeek();
   };
 
+  // اولویت رنگ حاشیه: انتخاب‌شده برای سوزوندن (نارنجی) > تازه‌کشیده‌شده (قرمز) > حالت عادی
+  const stateBorderClass = forceReveal
+    ? "border-blood-moon border-2"
+    : "border-silver/30";
+
   return (
     <div
       onDoubleClick={handleDoubleClick}
+      onClick={onClick}
       className={`
         ${boxClasses}
         relative
@@ -80,7 +88,9 @@ export function PeekableCard({
         select-none
         transition
         border
-        ${showFace ? "border-silver/30" : "border-silver/30 bg-void"}
+        ${stateBorderClass}
+        ${!showFace ? "bg-void" : ""}
+        ${forceReveal ? "shadow-lg shadow-blood-moon/40" : ""}
         ${
           canPeek && peekWindowOpen && !showFace
             ? "cursor-pointer hover:border-ember hover:border-2"

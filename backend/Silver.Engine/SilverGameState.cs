@@ -64,8 +64,16 @@ public class SilverGameState
     // این‌ها جایگزین دیکشنری‌های داخل موتور می‌شن:
     public SilverCard? PendingDrawnCard { get; set; }
     public List<SilverCard>? PendingRascalChoiceOptions { get; set; }
+    public PendingDrawnCardSource DrawnCardSource { get; set; } = PendingDrawnCardSource.None;
     // اضافه کن (به‌جای اینکه فقط شمارنده داشته باشیم):
     // public DateTime? InitialPeekWindowEndsAt { get; set; }
     // public const int InitialPeekWindowSeconds = 10;
 
+}
+public enum PendingDrawnCardSource
+{
+    None,
+    Deck,
+    Discard,
+    Squire
 }

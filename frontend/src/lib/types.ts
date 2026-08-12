@@ -55,6 +55,7 @@ export type GameStateView = {
   winnerPlayerId: string | null;
   InitialPeekDeadlineUtc: string | null;   // ← جدید
   myInitialPeeksRemaining: number; 
+  drawnCardSource: "None" | "Deck" | "Discard" | "Squire";
 };
 
 export const CARD_NAMES_FA: Record<CardType, string> = {
@@ -108,3 +109,4 @@ export const CARD_DESCRIPTIONS_FA: Record<CardType, string> = {
   Witch: "کارت بالای دسته را مخفیانه ببین و با کارت روستای خودت یا بازیکن دیگر تعویض کن.", 
   Robber: "یک کارت از روستای بازیکن دیگر را با یکی از کارت‌های خودت تعویض کن.", 
   Doppelganger: "هنگام تعویض چندتایی، می‌تواند با هر عددی هم‌عدد محسوب شود.", };
+  

@@ -86,10 +86,25 @@ public class GameSessionService
             squireRevealedCards = state.SquireRevealedCards.Select(c => MapCard(c, false)),
             pendingAbilityPlayerId = state.PendingAbilityPlayerId,
             pendingAbilityCardType = state.PendingAbilityCardType?.ToString(),
+            drawnCardSource = state.DrawnCardSource.ToString(),
             // کارت کشیده‌شده فقط برای صاحبش با جزئیات کامل نشون داده می‌شه
             pendingDrawnCard = state.PendingDrawnCard != null
-                ? MapCard(state.PendingDrawnCard, forPlayerId == state.CurrentPlayerId)
-                : null,
+    ? (forPlayerId == state.CurrentPlayerId
+        ? new
+        {
+            cardId = state.PendingDrawnCard.CardId,
+            type = state.PendingDrawnCard.Type.ToString(),
+            value = (int?)state.PendingDrawnCard.Value,
+            isPubliclyRevealed = false
+        }
+        : new
+        {
+            cardId = state.PendingDrawnCard.CardId,
+            type = (string?)null,
+            value = (int?)null,
+            isPubliclyRevealed = false
+        })
+    : null,
             villages = state.Villages.ToDictionary(
                 kv => kv.Key,
                 kv => new

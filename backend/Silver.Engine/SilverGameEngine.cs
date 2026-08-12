@@ -86,6 +86,8 @@ public class SilverGameEngine
         state.CallerPlayerId = null;
         // state.RoundEndReason = RoundEndReason.None;
         state.PendingDrawnCard = null;
+
+        state.DrawnCardSource = PendingDrawnCardSource.None;
         state.PendingRascalChoiceOptions = null;
         state.SideActionUsedThisTurn = false;
         ClearPendingAbility(state);
@@ -187,77 +189,15 @@ public class SilverGameEngine
 
     // ------------------ کشیدن از دسته اصلی (+ Rascal) ------------------
 
-    private SilverActionResult HandleDrawFromDeck(SilverGameState state, SilverAction action)
-    {
-        if (state.DrawPile.Count == 0)
-        {
-            EndRound(state, RoundEndReason.DrawPileEmpty);
-            return SilverActionResult.Ok(state);
-        }
 
-        var village = state.Villages[action.PlayerId];
-        var revealedRascalCount = village.Cards.Count(c => c.IsPubliclyRevealed && c.Type == CardType.Rascal);
-        var cardsToDrawCount = Math.Min(1 + revealedRascalCount, state.DrawPile.Count);
 
-        if (cardsToDrawCount == 1)
-        {
-            var card = DrawTopOfDeck(state);
-            state.PendingDrawnCard = card;
-            return SilverActionResult.Ok(state);
-        }
-
-        var drawn = new List<SilverCard>();
-        for (int i = 0; i < cardsToDrawCount; i++)
-            drawn.Add(DrawTopOfDeck(state));
-
-        state.PendingRascalChoiceOptions = drawn;
-        return SilverActionResult.Ok(state);
-    }
-
-    private SilverActionResult HandleChooseFromRascalDraw(SilverGameState state, ChooseFromRascalDrawAction action)
-    {
-        if (state.PendingRascalChoiceOptions == null)
-            return SilverActionResult.Fail("کارتی برای انتخاب از Rascal در انتظار نیست.");
-
-        var chosen = state.PendingRascalChoiceOptions.FirstOrDefault(c => c.CardId == action.ChosenCardId);
-        if (chosen == null)
-            return SilverActionResult.Fail("کارت انتخاب‌شده در میان کارت‌های کشیده‌شده نیست.");
-
-        var remaining = state.PendingRascalChoiceOptions.Where(c => c.CardId != action.ChosenCardId).ToList();
-        for (int i = remaining.Count - 1; i >= 0; i--)
-            state.DrawPile.Add(remaining[i]);
-
-        state.PendingRascalChoiceOptions = null;
-        state.PendingDrawnCard = chosen;
-
-        return SilverActionResult.Ok(state);
-    }
 
     // ------------------ برداشتن از discard ------------------
 
-    private SilverActionResult HandleTakeFromDiscard(SilverGameState state, SilverAction action)
-    {
-        if (state.DiscardPile.Count == 0)
-            return SilverActionResult.Fail("دسته‌ی دورریختنی خالی است.");
-
-        var topCard = state.DiscardPile[^1];
-        state.PendingDrawnCard = topCard;
-        return SilverActionResult.Ok(state);
-    }
 
     // ------------------ برداشتن کارت کمکی Squire ------------------
 
-    private SilverActionResult HandleTakeSquireCard(SilverGameState state, TakeSquireCardAction action)
-    {
-        var squireCard = state.SquireRevealedCards.FirstOrDefault(c => c.CardId == action.SquireCardId);
-        if (squireCard == null)
-            return SilverActionResult.Fail("این کارت کمکی در حال حاضر در دسترس نیست.");
 
-        state.SquireRevealedCards.Remove(squireCard);
-        state.PendingDrawnCard = squireCard;
-
-        return SilverActionResult.Ok(state);
-    }
 
     // ------------------ تصمیم بعد از Draw/TakeFromDiscard/TakeSquire ------------------
     private static readonly HashSet<CardType> CardTypesRequiringAbilityResolution = new()
@@ -275,25 +215,26 @@ public class SilverGameEngine
         pending.IsPubliclyRevealed = true;
         state.DiscardPile.Add(pending);
         state.PendingDrawnCard = null;
+        state.DrawnCardSource = PendingDrawnCardSource.None;
 
         if (CheckVillagerEndCondition(state))
             return SilverActionResult.Ok(state);
 
-        if (CardTypesRequiringAbilityResolution.Contains(pending.Type))
-        {
-            state.PendingAbilityPlayerId = action.PlayerId;
-            state.PendingAbilityCardType = pending.Type;
-            state.PendingAbilityCardId = pending.CardId;
+        // if (CardTypesRequiringAbilityResolution.Contains(pending.Type))
+        // {
+        //     state.PendingAbilityPlayerId = action.PlayerId;
+        //     state.PendingAbilityCardType = pending.Type;
+        //     state.PendingAbilityCardId = pending.CardId;
 
-            Dictionary<string, CardType>? privateInfo = null;
-            if (pending.Type == CardType.Witch && state.DrawPile.Count > 0)
-            {
-                var topOfDeck = state.DrawPile[^1];
-                privateInfo = new Dictionary<string, CardType> { [topOfDeck.CardId] = topOfDeck.Type };
-            }
+        //     Dictionary<string, CardType>? privateInfo = null;
+        //     if (pending.Type == CardType.Witch && state.DrawPile.Count > 0)
+        //     {
+        //         var topOfDeck = state.DrawPile[^1];
+        //         privateInfo = new Dictionary<string, CardType> { [topOfDeck.CardId] = topOfDeck.Type };
+        //     }
 
-            return SilverActionResult.Ok(state, privateInfo);
-        }
+        //     return SilverActionResult.Ok(state, privateInfo);
+        // }
 
         AdvanceTurn(state);
         return SilverActionResult.Ok(state);
@@ -305,10 +246,24 @@ public class SilverGameEngine
             return SilverActionResult.Fail("کارت کشیده‌شده‌ی معتبری برای تعویض پیدا نشد.");
 
         var village = state.Villages[action.PlayerId];
-        var swapResult = TrySwapMultiple(village, action.OwnCardIdsToReplace, state.PendingDrawnCard, state);
-        if (!swapResult.Success) return swapResult;
+        var drawnCard = state.PendingDrawnCard;
+        var swapResult = TrySwapMultiple(village, action.OwnCardIdsToReplace, drawnCard, state);
 
         state.PendingDrawnCard = null;
+
+        if (!swapResult.Success)
+        {
+            // تعویض ناموفق بود: کارت‌های خودت (که TrySwapMultiple دست‌نخورده گذاشته) توی روستا می‌مونن،
+            // ولی کارت کشیده‌شده دیگه نمی‌تونه به دستت برگرده - می‌سوزه، و نوبت طبق قانون تموم می‌شه.
+            drawnCard.IsPubliclyRevealed = true;
+            state.DiscardPile.Add(drawnCard);
+
+            if (CheckVillagerEndCondition(state))
+                return swapResult;
+
+            AdvanceTurn(state);
+            return swapResult; // پیام خطا رو نگه می‌داریم تا فرانت بتونه نشون بده چرا شکست خورد
+        }
 
         if (CheckVillagerEndCondition(state))
             return SilverActionResult.Ok(state);
@@ -332,6 +287,7 @@ public class SilverGameEngine
         if (!swapResult.Success) return swapResult;
 
         state.PendingDrawnCard = null;
+        state.DrawnCardSource = PendingDrawnCardSource.None;
 
         if (CheckVillagerEndCondition(state))
             return SilverActionResult.Ok(state);
@@ -382,7 +338,8 @@ public class SilverGameEngine
                 village.BodyguardProtectingCardId = null;
         }
 
-        newCard.IsPubliclyRevealed = false;
+        // newCard.IsPubliclyRevealed = false;
+        // village.Cards.Add(newCard);
         village.Cards.Add(newCard);
 
         return SilverActionResult.Ok(state);
@@ -917,5 +874,82 @@ public class SilverGameEngine
         ClearPendingAbility(state);
         AdvanceTurn(state);
         return SilverActionResult.Ok(state, privateInfo);
+    }
+    private SilverActionResult HandleDrawFromDeck(SilverGameState state, SilverAction action)
+    {
+        if (state.DrawPile.Count == 0)
+        {
+            EndRound(state, RoundEndReason.DrawPileEmpty);
+            return SilverActionResult.Ok(state);
+        }
+
+        var village = state.Villages[action.PlayerId];
+        var revealedRascalCount = village.Cards.Count(c => c.IsPubliclyRevealed && c.Type == CardType.Rascal);
+        var cardsToDrawCount = Math.Min(1 + revealedRascalCount, state.DrawPile.Count);
+
+        if (cardsToDrawCount == 1)
+        {
+            var card = DrawTopOfDeck(state);
+            state.PendingDrawnCard = card;
+            state.DrawnCardSource = PendingDrawnCardSource.Deck;
+
+            var privateInfo = new Dictionary<string, CardType> { [card.CardId] = card.Type }; // ← جدید
+            return SilverActionResult.Ok(state, privateInfo);
+        }
+
+        var drawn = new List<SilverCard>();
+        for (int i = 0; i < cardsToDrawCount; i++)
+            drawn.Add(DrawTopOfDeck(state));
+
+        state.PendingRascalChoiceOptions = drawn;
+
+        var rascalPrivateInfo = drawn.ToDictionary(c => c.CardId, c => c.Type); // ← جدید: همه‌ی گزینه‌ها رو نشون بده
+        return SilverActionResult.Ok(state, rascalPrivateInfo);
+    }
+
+    private SilverActionResult HandleChooseFromRascalDraw(SilverGameState state, ChooseFromRascalDrawAction action)
+    {
+        if (state.PendingRascalChoiceOptions == null)
+            return SilverActionResult.Fail("کارتی برای انتخاب از Rascal در انتظار نیست.");
+
+        var chosen = state.PendingRascalChoiceOptions.FirstOrDefault(c => c.CardId == action.ChosenCardId);
+        if (chosen == null)
+            return SilverActionResult.Fail("کارت انتخاب‌شده در میان کارت‌های کشیده‌شده نیست.");
+
+        var remaining = state.PendingRascalChoiceOptions.Where(c => c.CardId != action.ChosenCardId).ToList();
+        for (int i = remaining.Count - 1; i >= 0; i--)
+            state.DrawPile.Add(remaining[i]);
+
+        state.PendingRascalChoiceOptions = null;
+        state.PendingDrawnCard = chosen;
+        state.DrawnCardSource = PendingDrawnCardSource.Deck;
+
+        var privateInfo = new Dictionary<string, CardType> { [chosen.CardId] = chosen.Type }; // ← جدید
+        return SilverActionResult.Ok(state, privateInfo);
+    }
+
+    private SilverActionResult HandleTakeFromDiscard(SilverGameState state, SilverAction action)
+    {
+        if (state.DiscardPile.Count == 0)
+            return SilverActionResult.Fail("دسته‌ی دورریختنی خالی است.");
+
+        var topCard = state.DiscardPile[^1];
+        state.PendingDrawnCard = topCard;
+        state.DrawnCardSource = PendingDrawnCardSource.Discard; // ← جدید
+
+        return SilverActionResult.Ok(state); // نیازی به privateInfo نیست چون این کارت از قبل عمومیه
+    }
+
+    private SilverActionResult HandleTakeSquireCard(SilverGameState state, TakeSquireCardAction action)
+    {
+        var squireCard = state.SquireRevealedCards.FirstOrDefault(c => c.CardId == action.SquireCardId);
+        if (squireCard == null)
+            return SilverActionResult.Fail("این کارت کمکی در حال حاضر در دسترس نیست.");
+
+        state.SquireRevealedCards.Remove(squireCard);
+        state.PendingDrawnCard = squireCard;
+        state.DrawnCardSource = PendingDrawnCardSource.Squire; // ← جدید
+
+        return SilverActionResult.Ok(state); // این کارت‌ها هم از قبل عمومی‌ان
     }
 }
