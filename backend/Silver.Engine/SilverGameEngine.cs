@@ -50,11 +50,14 @@ public class SilverGameEngine
             state.InitialPeeksUsedByPlayer[playerId] = 0;
         state.InitialPeekDeadlineUtc =
             DateTime.UtcNow.AddSeconds(SilverGameState.InitialPeekDurationSeconds);
-        foreach (var village in state.Villages.Values)
+
+        // قبل از پخش کارت‌های جدید، کارت Amulet رو (اگه دست کسی بود) از همه‌ی دهکده‌ها جدا می‌کنیم
+        // و محافظتِ قبلی‌ش رو هم پاک می‌کنیم؛ چون هر دور از نو تصمیم می‌گیریم دست کیه.
+        foreach (var v in state.Villages.Values)
         {
-            village.Cards.Clear();
-            village.BodyguardProtectingCardId = null;
-            village.AmuletCoveredCardId = null;
+            v.Cards.RemoveAll(c => c.CardId == state.AmuletCard.CardId);
+            v.BodyguardProtectingCardId = null;
+            v.AmuletCoveredCardId = null;
         }
 
         foreach (var playerId in state.PlayerIdsInTurnOrder)
@@ -62,6 +65,18 @@ public class SilverGameEngine
             var village = state.Villages[playerId];
             for (int i = 0; i < 5; i++)
                 village.Cards.Add(DrawTopOfDeck(state));
+        }
+
+        // برنده‌ی دورِ قبل (فقط اگه دور قبلی وجود داشته و یک برنده‌ی یکتا داشته، نه مساوی) کارت Amulet رو می‌گیره
+        if (state.LastRoundScores.Count > 0)
+        {
+            var minScore = state.LastRoundScores.Values.Min();
+            var winners = state.LastRoundScores.Where(kv => kv.Value == minScore).Select(kv => kv.Key).ToList();
+
+            if (winners.Count == 1)
+            {
+                state.Villages[winners[0]].Cards.Add(state.AmuletCard);
+            }
         }
 
         var firstDiscard = DrawTopOfDeck(state);
@@ -84,12 +99,15 @@ public class SilverGameEngine
 
         state.HasBeenCalled = false;
         state.CallerPlayerId = null;
-        // state.RoundEndReason = RoundEndReason.None;
         state.PendingDrawnCard = null;
 
         state.DrawnCardSource = PendingDrawnCardSource.None;
         state.PendingRascalChoiceOptions = null;
         state.SideActionUsedThisTurn = false;
+        state.PendingWitchCard = null;
+        state.SeerPeekUsedThisAbility = false;
+        state.IsFinalRoundDeclared = false;
+        state.FinalRoundDeclarerPlayerId = null;
         ClearPendingAbility(state);
 
         state.Phase = GamePhase.RoundInProgress;
@@ -99,7 +117,6 @@ public class SilverGameEngine
 
         state.UpdatedAt = DateTime.UtcNow;
 
-        // چک اولیه
         CheckVillagerEndCondition(state);
         SyncSquireRevealedCards(state);
     }
@@ -143,6 +160,8 @@ public class SilverGameEngine
 
     public SilverActionResult ApplyAction(SilverGameState state, SilverAction action)
     {
+        if (action is StartNextRoundAction startNextRound)
+            return HandleStartNextRound(state, startNextRound);
         if (action is InitialCardPeekAction initialPeek)
             return HandleInitialCardPeek(state, initialPeek);
 
@@ -154,6 +173,8 @@ public class SilverGameEngine
         {
             return action switch
             {
+                SetAmuletProtectionAction a => HandleSetAmuletProtection(state, a),
+                DeclareFinalRoundAction => HandleDeclareFinalRound(state, action),
                 ExposerRevealOwnCardAction a => HandleExposerReveal(state, a),
                 BeholderPeekAction a => HandleBeholderPeek(state, a),
                 RevealerRevealCardAction a => HandleRevealerReveal(state, a),
@@ -169,6 +190,7 @@ public class SilverGameEngine
 
         return action switch
         {
+            DeclareFinalRoundAction => HandleDeclareFinalRound(state, action),
             DrawFromDeckAction => HandleDrawFromDeck(state, action),
             ChooseFromRascalDrawAction a => HandleChooseFromRascalDraw(state, a),
             TakeFromDiscardAction => HandleTakeFromDiscard(state, action),
@@ -212,6 +234,8 @@ public class SilverGameEngine
             return SilverActionResult.Fail("کارت کشیده‌شده‌ی معتبری برای دور انداختن پیدا نشد.");
 
         var pending = state.PendingDrawnCard;
+        var source = state.DrawnCardSource; // قبل از ریست کردن، منبع رو نگه می‌داریم
+
         pending.IsPubliclyRevealed = true;
         state.DiscardPile.Add(pending);
         state.PendingDrawnCard = null;
@@ -220,21 +244,85 @@ public class SilverGameEngine
         if (CheckVillagerEndCondition(state))
             return SilverActionResult.Ok(state);
 
-        // if (CardTypesRequiringAbilityResolution.Contains(pending.Type))
-        // {
-        //     state.PendingAbilityPlayerId = action.PlayerId;
-        //     state.PendingAbilityCardType = pending.Type;
-        //     state.PendingAbilityCardId = pending.CardId;
+        // کارت‌هایی که مستقیم از دسته‌ی سوخته‌ها (Discard) برداشته و بلافاصله سوزونده می‌شن،
+        // هیچ‌وقت ability فعال نمی‌کنن — چه ۵ باشه چه ۱۲. فقط از Deck یا Squire ability فعال می‌شه.
+        bool abilityEligible = source == PendingDrawnCardSource.Deck || source == PendingDrawnCardSource.Squire;
 
-        //     Dictionary<string, CardType>? privateInfo = null;
-        //     if (pending.Type == CardType.Witch && state.DrawPile.Count > 0)
-        //     {
-        //         var topOfDeck = state.DrawPile[^1];
-        //         privateInfo = new Dictionary<string, CardType> { [topOfDeck.CardId] = topOfDeck.Type };
-        //     }
+        if (abilityEligible && pending.Type == CardType.Robber)
+        {
+            state.PendingAbilityPlayerId = action.PlayerId;
+            state.PendingAbilityCardType = pending.Type;
+            state.PendingAbilityCardId = pending.CardId;
+            return SilverActionResult.Ok(state);
+        }
 
-        //     return SilverActionResult.Ok(state, privateInfo);
-        // }
+        if (abilityEligible && pending.Type == CardType.Witch)
+        {
+            if (state.DrawPile.Count == 0)
+            {
+                AdvanceTurn(state);
+                return SilverActionResult.Ok(state);
+            }
+
+            var topOfDeck = state.DrawPile[^1];
+            state.DrawPile.RemoveAt(state.DrawPile.Count - 1);
+            state.PendingWitchCard = topOfDeck;
+
+            state.PendingAbilityPlayerId = action.PlayerId;
+            state.PendingAbilityCardType = pending.Type;
+            state.PendingAbilityCardId = pending.CardId;
+
+            var witchPrivateInfo = new Dictionary<string, CardType> { [topOfDeck.CardId] = topOfDeck.Type };
+            return SilverActionResult.Ok(state, witchPrivateInfo);
+        }
+
+        if (abilityEligible && pending.Type == CardType.Master)
+        {
+            state.PendingAbilityPlayerId = action.PlayerId;
+            state.PendingAbilityCardType = pending.Type;
+            state.PendingAbilityCardId = pending.CardId;
+            return SilverActionResult.Ok(state);
+        }
+
+        if (abilityEligible && pending.Type == CardType.Seer)
+        {
+            state.PendingAbilityPlayerId = action.PlayerId;
+            state.PendingAbilityCardType = pending.Type;
+            state.PendingAbilityCardId = pending.CardId;
+            return SilverActionResult.Ok(state);
+        }
+
+        if (abilityEligible && pending.Type == CardType.ApprenticeSeer)
+        {
+            state.PendingAbilityPlayerId = action.PlayerId;
+            state.PendingAbilityCardType = pending.Type;
+            state.PendingAbilityCardId = pending.CardId;
+            return SilverActionResult.Ok(state);
+        }
+
+        if (abilityEligible && pending.Type == CardType.Beholder)
+        {
+            state.PendingAbilityPlayerId = action.PlayerId;
+            state.PendingAbilityCardType = pending.Type;
+            state.PendingAbilityCardId = pending.CardId;
+            return SilverActionResult.Ok(state);
+        }
+
+        if (abilityEligible && pending.Type == CardType.Exposer)
+        {
+            state.PendingAbilityPlayerId = action.PlayerId;
+            state.PendingAbilityCardType = pending.Type;
+            state.PendingAbilityCardId = pending.CardId;
+            return SilverActionResult.Ok(state);
+        }
+
+        if (abilityEligible && pending.Type == CardType.Revealer)
+        {
+            state.PendingAbilityPlayerId = action.PlayerId;
+            state.PendingAbilityCardType = pending.Type;
+            state.PendingAbilityCardId = pending.CardId;
+            return SilverActionResult.Ok(state);
+        }
 
         AdvanceTurn(state);
         return SilverActionResult.Ok(state);
@@ -249,21 +337,26 @@ public class SilverGameEngine
         var drawnCard = state.PendingDrawnCard;
         var swapResult = TrySwapMultiple(village, action.OwnCardIdsToReplace, drawnCard, state);
 
-        state.PendingDrawnCard = null;
-
         if (!swapResult.Success)
         {
-            // تعویض ناموفق بود: کارت‌های خودت (که TrySwapMultiple دست‌نخورده گذاشته) توی روستا می‌مونن،
-            // ولی کارت کشیده‌شده دیگه نمی‌تونه به دستت برگرده - می‌سوزه، و نوبت طبق قانون تموم می‌شه.
-            drawnCard.IsPubliclyRevealed = true;
-            state.DiscardPile.Add(drawnCard);
+            // تعویض ناموفق بود: کارت‌های خودِ بازیکن (که TrySwapMultiple دست‌نخورده گذاشته) دقیقاً
+            // با همون وضعیت روبودن/نبودنشون توی دهکده می‌مونن. کارت کشیده‌شده هم دیگه سوزونده نمی‌شه؛
+            // به‌جاش به‌عنوان یک کارت جدید و دائمی وارد دهکده‌ی خودش می‌شه (پنالتی)،
+            // بدون اینکه وضعیت روبودنش رو دستی تغییر بدیم.
+            village.Cards.Add(drawnCard);
+
+            state.PendingDrawnCard = null;
+            state.DrawnCardSource = PendingDrawnCardSource.None;
 
             if (CheckVillagerEndCondition(state))
-                return swapResult;
+                return SilverActionResult.Fail(swapResult.ErrorMessage!, state);
 
             AdvanceTurn(state);
-            return swapResult; // پیام خطا رو نگه می‌داریم تا فرانت بتونه نشون بده چرا شکست خورد
+            return SilverActionResult.Fail(swapResult.ErrorMessage!, state);
         }
+
+        state.PendingDrawnCard = null;
+        state.DrawnCardSource = PendingDrawnCardSource.None;
 
         if (CheckVillagerEndCondition(state))
             return SilverActionResult.Ok(state);
@@ -277,14 +370,16 @@ public class SilverGameEngine
         if (state.PendingDrawnCard == null || state.PendingDrawnCard.CardId != action.DiscardCardId)
             return SilverActionResult.Fail("کارت دورریختنیِ معتبری برای تعویض پیدا نشد.");
 
-        if (state.DiscardPile.Count == 0 || state.DiscardPile[^1].CardId != state.PendingDrawnCard.CardId)
-            return SilverActionResult.Fail("این کارت دیگر بالای دسته‌ی دورریختنی نیست.");
-
-        state.DiscardPile.RemoveAt(state.DiscardPile.Count - 1);
-
         var village = state.Villages[action.PlayerId];
-        var swapResult = TrySwapMultiple(village, action.OwnCardIdsToReplace, state.PendingDrawnCard, state);
-        if (!swapResult.Success) return swapResult;
+        var pendingCard = state.PendingDrawnCard;
+        var swapResult = TrySwapMultiple(village, action.OwnCardIdsToReplace, pendingCard, state);
+
+        if (!swapResult.Success)
+        {
+            // تعویض ناموفق بود؛ کارت رو به بالای discard برگردون چون قبلاً از اونجا برداشته بودیمش
+            state.DiscardPile.Add(pendingCard);
+            return swapResult;
+        }
 
         state.PendingDrawnCard = null;
         state.DrawnCardSource = PendingDrawnCardSource.None;
@@ -295,7 +390,6 @@ public class SilverGameEngine
         AdvanceTurn(state);
         return SilverActionResult.Ok(state);
     }
-
     private SilverActionResult TrySwapMultiple(
         SilverPlayerVillage village,
         List<string> ownCardIdsToReplace,
@@ -311,6 +405,8 @@ public class SilverGameEngine
             var found = village.Cards.FirstOrDefault(c => c.CardId == cardId);
             if (found == null)
                 return SilverActionResult.Fail($"کارت {cardId} در روستای این بازیکن پیدا نشد.");
+            if (found.Type == CardType.Amulet)
+                return SilverActionResult.Fail("کارت Amulet را نمی‌توان سوزاند یا جابه‌جا کرد.");
             selectedCards.Add(found);
         }
 
@@ -353,17 +449,31 @@ public class SilverGameEngine
             return SilverActionResult.Fail("در این نوبت قبلاً از یک اکشن جانبی استفاده کرده‌ای.");
 
         var village = state.Villages[action.PlayerId];
-        var empathCard = village.Cards.FirstOrDefault(c => c.CardId == action.EmpathCardId && c.IsPubliclyRevealed && c.Type == CardType.Empath);
-        if (empathCard == null)
+
+        var revealedEmpathCount = village.Cards.Count(c => c.IsPubliclyRevealed && c.Type == CardType.Empath);
+        if (revealedEmpathCount == 0)
             return SilverActionResult.Fail("Empath رو‌شده‌ای در روستای تو پیدا نشد.");
 
-        var targetCard = village.Cards.FirstOrDefault(c => c.CardId == action.OwnCardIdToPeek);
-        if (targetCard == null)
-            return SilverActionResult.Fail("کارت هدف در روستای تو پیدا نشد.");
+        if (action.OwnCardIdsToPeek.Count == 0)
+            return SilverActionResult.Fail("حداقل باید یک کارت انتخاب کنی.");
+
+        if (action.OwnCardIdsToPeek.Count > revealedEmpathCount)
+            return SilverActionResult.Fail($"با {revealedEmpathCount} کارت Empath رو‌شده، حداکثر {revealedEmpathCount} کارت می‌تونی ببینی.");
+
+        if (action.OwnCardIdsToPeek.Distinct().Count() != action.OwnCardIdsToPeek.Count)
+            return SilverActionResult.Fail("کارت‌های انتخاب‌شده باید متفاوت باشند.");
+
+        var privateInfo = new Dictionary<string, CardType>();
+        foreach (var cardId in action.OwnCardIdsToPeek)
+        {
+            var targetCard = village.Cards.FirstOrDefault(c => c.CardId == cardId);
+            if (targetCard == null)
+                return SilverActionResult.Fail("یکی از کارت‌های هدف در روستای تو پیدا نشد.");
+            privateInfo[targetCard.CardId] = targetCard.Type;
+        }
 
         state.SideActionUsedThisTurn = true;
 
-        var privateInfo = new Dictionary<string, CardType> { [targetCard.CardId] = targetCard.Type };
         return SilverActionResult.Ok(state, privateInfo);
     }
 
@@ -395,6 +505,30 @@ public class SilverGameEngine
         state.SideActionUsedThisTurn = true;
         return SilverActionResult.Ok(state);
     }
+    private SilverActionResult HandleSetAmuletProtection(SilverGameState state, SetAmuletProtectionAction action)
+    {
+        var village = state.Villages[action.PlayerId];
+
+        bool hasAmulet = village.Cards.Any(c => c.CardId == state.AmuletCard.CardId);
+        if (!hasAmulet)
+            return SilverActionResult.Fail("کارت Amulet در روستای تو نیست.");
+
+        // یک‌بار که قفل شد، تا پایان همین دور دیگه قابل تغییر نیست؛ حتی توسط خودِ صاحبش.
+        if (village.AmuletCoveredCardId != null)
+            return SilverActionResult.Fail("کارت Amulet قبلاً از یک کارت محافظت می‌کند و تا پایان این دور قابل تغییر نیست.");
+
+        if (action.TargetOwnCardId == state.AmuletCard.CardId)
+            return SilverActionResult.Fail("Amulet نمی‌تواند از خودش محافظت کند.");
+
+        var target = village.Cards.FirstOrDefault(c => c.CardId == action.TargetOwnCardId);
+        if (target == null)
+            return SilverActionResult.Fail("کارت هدف در روستای تو پیدا نشد.");
+
+        village.AmuletCoveredCardId = target.CardId;
+
+        // این یک اکشن جانبیِ آزاده؛ نه نوبت رو تموم می‌کنه، نه به SideActionUsedThisTurn وابسته‌ست.
+        return SilverActionResult.Ok(state);
+    }
 
     // ------------------ حل قابلیت‌های discard-triggered ------------------
 
@@ -403,19 +537,24 @@ public class SilverGameEngine
         if (state.PendingAbilityCardType != CardType.Exposer || state.PendingAbilityPlayerId != action.PlayerId)
             return SilverActionResult.Fail("در حال حاضر منتظر قابلیت Exposer نیستیم.");
 
+        if (state.SeerPeekUsedThisAbility)
+            return SilverActionResult.Fail("قبلاً با این قابلیت یک کارت رو کرده‌ای.");
+
         var village = state.Villages[action.PlayerId];
         var target = village.Cards.FirstOrDefault(c => c.CardId == action.OwnCardIdToReveal);
         if (target == null)
             return SilverActionResult.Fail("کارت هدف در روستای تو پیدا نشد.");
+        if (target.IsPubliclyRevealed)
+            return SilverActionResult.Fail("این کارت از قبل رو شده است.");
 
         target.IsPubliclyRevealed = true;
-
-        ClearPendingAbility(state);
+        state.SeerPeekUsedThisAbility = true;
 
         if (CheckVillagerEndCondition(state))
             return SilverActionResult.Ok(state);
 
-        AdvanceTurn(state);
+        // عمداً نه ClearPendingAbility صدا زده می‌شه نه AdvanceTurn؛
+        // کاربر باید خودش با دکمه‌ی «پایان نوبت» (SkipAbility) نوبتش رو تموم کنه.
         return SilverActionResult.Ok(state);
     }
 
@@ -424,27 +563,31 @@ public class SilverGameEngine
         if (state.PendingAbilityCardType != CardType.Beholder || state.PendingAbilityPlayerId != action.PlayerId)
             return SilverActionResult.Fail("در حال حاضر منتظر قابلیت Beholder نیستیم.");
 
+        if (state.SeerPeekUsedThisAbility)
+            return SilverActionResult.Fail("قبلاً با این قابلیت کارت دیده‌ای.");
+
+        if (action.OwnCardIds.Count is < 1 or > 2)
+            return SilverActionResult.Fail("باید یک یا دو کارت انتخاب کنی.");
+
+        if (action.OwnCardIds.Distinct().Count() != action.OwnCardIds.Count)
+            return SilverActionResult.Fail("کارت‌های انتخاب‌شده باید متفاوت باشند.");
+
         var village = state.Villages[action.PlayerId];
-        var first = village.Cards.FirstOrDefault(c => c.CardId == action.FirstOwnCardId);
-        var second = village.Cards.FirstOrDefault(c => c.CardId == action.SecondOwnCardId);
+        var privateInfo = new Dictionary<string, CardType>();
 
-        if (first == null || second == null)
-            return SilverActionResult.Fail("یکی از کارت‌های هدف در روستای تو پیدا نشد.");
-        if (first.CardId == second.CardId)
-            return SilverActionResult.Fail("باید دو کارت متفاوت انتخاب کنی.");
-
-        var privateInfo = new Dictionary<string, CardType>
+        foreach (var cardId in action.OwnCardIds)
         {
-            [first.CardId] = first.Type,
-            [second.CardId] = second.Type
-        };
+            var card = village.Cards.FirstOrDefault(c => c.CardId == cardId);
+            if (card == null)
+                return SilverActionResult.Fail("یکی از کارت‌های هدف در روستای تو پیدا نشد.");
 
-        ClearPendingAbility(state);
+            privateInfo[card.CardId] = card.Type;
+        }
 
-        if (CheckVillagerEndCondition(state))
-            return SilverActionResult.Ok(state, privateInfo);
+        state.SeerPeekUsedThisAbility = true;
 
-        AdvanceTurn(state);
+        // عمداً نه ClearPendingAbility صدا زده می‌شه نه AdvanceTurn؛
+        // کاربر باید خودش با دکمه‌ی «پایان نوبت» (SkipAbility) نوبتش رو تموم کنه.
         return SilverActionResult.Ok(state, privateInfo);
     }
 
@@ -452,6 +595,12 @@ public class SilverGameEngine
     {
         if (state.PendingAbilityPlayerId != action.PlayerId)
             return SilverActionResult.Fail("قابلیتی برای این بازیکن در انتظار نیست.");
+
+        if (state.PendingAbilityCardType == CardType.Witch && state.PendingWitchCard != null)
+        {
+            state.DrawPile.Add(state.PendingWitchCard);
+            state.PendingWitchCard = null;
+        }
 
         ClearPendingAbility(state);
         AdvanceTurn(state);
@@ -463,6 +612,7 @@ public class SilverGameEngine
         state.PendingAbilityPlayerId = null;
         state.PendingAbilityCardType = null;
         state.PendingAbilityCardId = null;
+        state.SeerPeekUsedThisAbility = false;
     }
 
     // ------------------ Call ------------------
@@ -536,6 +686,12 @@ public class SilverGameEngine
             return;
         }
 
+        if (state.IsFinalRoundDeclared && nextPlayerId == state.FinalRoundDeclarerPlayerId)
+        {
+            EndRound(state, RoundEndReason.FinalRoundDeclared);
+            return;
+        }
+
         state.CurrentPlayerId = nextPlayerId;
         state.SideActionUsedThisTurn = false;
         state.UpdatedAt = DateTime.UtcNow;
@@ -591,11 +747,8 @@ public class SilverGameEngine
             state.Phase = GamePhase.GameFinished;
             state.WinnerPlayerId = state.CumulativeScores.OrderBy(kv => kv.Value).First().Key;
         }
-        else
-        {
-            state.RoundNumber++;
-            StartNewRound(state, firstRound: false);
-        }
+        // اگه دور آخر نبود، همین‌جا (فاز RoundScoring) می‌مونیم و منتظر کلیک کاربر
+        // روی «شروع دور جدید» می‌مونیم؛ دیگه خودکار StartNewRound صدا زده نمی‌شه.
     }
 
     internal void ScoreRound(SilverGameState state)
@@ -618,6 +771,8 @@ public class SilverGameEngine
             }
         }
 
+        state.LastRoundScores = new Dictionary<string, int>(rawScores);
+
         foreach (var (playerId, score) in rawScores)
         {
             state.CumulativeScores[playerId] += score;
@@ -638,13 +793,17 @@ public class SilverGameEngine
     private bool IsCardProtectedFromOthers(SilverPlayerVillage village, string cardId, string actingPlayerId)
     {
         if (village.PlayerId == actingPlayerId)
-            return false; // محدودیت فقط برای دست‌درازی به روستای دیگران است
+            return false;
 
         if (village.BodyguardProtectingCardId == cardId)
+            return true;
+        if (village.AmuletCoveredCardId == cardId)
             return true;
 
         var card = village.Cards.FirstOrDefault(c => c.CardId == cardId);
         if (card != null && card.Type == CardType.Bodyguard && card.IsPubliclyRevealed)
+            return true;
+        if (card != null && card.Type == CardType.Amulet)
             return true;
 
         return false;
@@ -667,6 +826,9 @@ public class SilverGameEngine
         if (state.PendingAbilityCardType != CardType.Revealer || state.PendingAbilityPlayerId != action.PlayerId)
             return SilverActionResult.Fail("در حال حاضر منتظر قابلیت Revealer نیستیم.");
 
+        if (state.SeerPeekUsedThisAbility)
+            return SilverActionResult.Fail("قبلاً با این قابلیت یک کارت رو کرده‌ای.");
+
         if (!state.Villages.TryGetValue(action.TargetPlayerId, out var targetVillage))
             return SilverActionResult.Fail("بازیکن هدف پیدا نشد.");
 
@@ -679,13 +841,13 @@ public class SilverGameEngine
             return SilverActionResult.Fail("این کارت با Bodyguard محافظت می‌شود.");
 
         targetCard.IsPubliclyRevealed = true;
-
-        ClearPendingAbility(state);
+        state.SeerPeekUsedThisAbility = true;
 
         if (CheckVillagerEndCondition(state))
             return SilverActionResult.Ok(state);
 
-        AdvanceTurn(state);
+        // عمداً نه ClearPendingAbility صدا زده می‌شه نه AdvanceTurn؛
+        // کاربر باید خودش با دکمه‌ی «پایان نوبت» (SkipAbility) نوبتش رو تموم کنه.
         return SilverActionResult.Ok(state);
     }
 
@@ -695,6 +857,9 @@ public class SilverGameEngine
     {
         if (state.PendingAbilityCardType != CardType.ApprenticeSeer || state.PendingAbilityPlayerId != action.PlayerId)
             return SilverActionResult.Fail("در حال حاضر منتظر قابلیت Apprentice Seer نیستیم.");
+
+        if (state.SeerPeekUsedThisAbility)
+            return SilverActionResult.Fail("قبلاً با این قابلیت یک کارت دیده‌ای.");
 
         if (action.TargetPlayerId == action.PlayerId)
             return SilverActionResult.Fail("Apprentice Seer فقط می‌تواند روستای بازیکن دیگر را ببیند.");
@@ -712,8 +877,10 @@ public class SilverGameEngine
 
         var privateInfo = new Dictionary<string, CardType> { [targetCard.CardId] = targetCard.Type };
 
-        ClearPendingAbility(state);
-        AdvanceTurn(state);
+        state.SeerPeekUsedThisAbility = true;
+
+        // عمداً نه ClearPendingAbility صدا زده می‌شه نه AdvanceTurn؛
+        // کاربر باید خودش با دکمه‌ی «پایان نوبت» (SkipAbility) نوبتش رو تموم کنه.
         return SilverActionResult.Ok(state, privateInfo);
     }
 
@@ -723,6 +890,9 @@ public class SilverGameEngine
     {
         if (state.PendingAbilityCardType != CardType.Seer || state.PendingAbilityPlayerId != action.PlayerId)
             return SilverActionResult.Fail("در حال حاضر منتظر قابلیت Seer نیستیم.");
+
+        if (state.SeerPeekUsedThisAbility)
+            return SilverActionResult.Fail("قبلاً با این قابلیت یک کارت دیده‌ای.");
 
         if (!state.Villages.TryGetValue(action.TargetPlayerId, out var targetVillage))
             return SilverActionResult.Fail("بازیکن هدف پیدا نشد.");
@@ -737,12 +907,16 @@ public class SilverGameEngine
 
         var privateInfo = new Dictionary<string, CardType> { [targetCard.CardId] = targetCard.Type };
 
-        ClearPendingAbility(state);
-        AdvanceTurn(state);
+        state.SeerPeekUsedThisAbility = true;
+
+        // عمداً نه ClearPendingAbility صدا زده می‌شه نه AdvanceTurn؛
+        // کاربر باید خودش با دکمه‌ی «پایان نوبت» (SkipAbility) نوبتش رو تموم کنه.
         return SilverActionResult.Ok(state, privateInfo);
     }
 
     // ------------------ Master ------------------
+
+
 
     private SilverActionResult HandleMasterSwap(SilverGameState state, MasterSwapAction action)
     {
@@ -751,18 +925,25 @@ public class SilverGameEngine
 
         var discardCard = state.DiscardPile.FirstOrDefault(c => c.CardId == action.DiscardCardId);
         if (discardCard == null)
-            return SilverActionResult.Fail("این کارت در دسته‌ی دورریختنی پیدا نشد.");
-
-        state.DiscardPile.Remove(discardCard);
+            return SilverActionResult.Fail("این کارت در دسته‌ی کارت‌های سوخته پیدا نشد.");
 
         var village = state.Villages[action.PlayerId];
-        var swapResult = TrySwapMultiple(village, action.OwnCardIdsToReplace, discardCard, state);
-        if (!swapResult.Success)
-        {
-            // اگه شکست خورد، کارت رو به discard برگردون (حالت قبل از تلاش)
-            state.DiscardPile.Add(discardCard);
-            return swapResult;
-        }
+        var ownCard = village.Cards.FirstOrDefault(c => c.CardId == action.OwnCardId);
+        if (ownCard == null)
+            return SilverActionResult.Fail("کارت خودت پیدا نشد.");
+
+        // کارت از دسته‌ی سوخته‌ها حذف و وارد دهکده‌ی خودت می‌شه؛ وضعیت رو بودنش دست‌نخورده می‌مونه
+        // (از قبل رو بود، چون همه‌ی کارت‌های discard عمومی‌ان).
+        state.DiscardPile.Remove(discardCard);
+        village.Cards.Remove(ownCard);
+        village.Cards.Add(discardCard);
+
+        // کارت خودت که کنار گذاشتی می‌سوزه و می‌ره بالای دسته‌ی سوخته‌ها
+        ownCard.IsPubliclyRevealed = true;
+        state.DiscardPile.Add(ownCard);
+
+        if (village.BodyguardProtectingCardId == ownCard.CardId)
+            village.BodyguardProtectingCardId = null;
 
         ClearPendingAbility(state);
 
@@ -780,51 +961,44 @@ public class SilverGameEngine
         if (state.PendingAbilityCardType != CardType.Witch || state.PendingAbilityPlayerId != action.PlayerId)
             return SilverActionResult.Fail("در حال حاضر منتظر قابلیت Witch نیستیم.");
 
-        if (state.DrawPile.Count == 0)
-            return SilverActionResult.Fail("دسته‌ی اصلی خالی است.");
+        if (state.PendingWitchCard == null)
+            return SilverActionResult.Fail("کارتی برای دادن در انتظار نیست.");
 
-        var topOfDeck = state.DrawPile[^1];
+        if (action.TargetCardIds.Count != 1)
+            return SilverActionResult.Fail("Witch فقط می‌تواند با یک کارت عوض شود.");
 
-        if (action.TargetPlayerId == action.PlayerId)
-        {
-            // تعویض با کارت(های) خودش - طبق قانون عمومی هم‌عدد بودن (با در نظر گرفتن Doppelgänger)
-            state.DrawPile.RemoveAt(state.DrawPile.Count - 1);
-            var village = state.Villages[action.PlayerId];
-            var swapResult = TrySwapMultiple(village, action.TargetCardIds, topOfDeck, state);
-            if (!swapResult.Success)
-            {
-                state.DrawPile.Add(topOfDeck); // برگردوندن کارت به دسته در صورت شکست
-                return swapResult;
-            }
-        }
-        else
-        {
-            if (action.TargetCardIds.Count != 1)
-                return SilverActionResult.Fail("Witch فقط می‌تواند با یک کارت از روستای بازیکن دیگر عوض کند.");
+        if (!state.Villages.TryGetValue(action.TargetPlayerId, out var targetVillage))
+            return SilverActionResult.Fail("بازیکن هدف پیدا نشد.");
 
-            if (!state.Villages.TryGetValue(action.TargetPlayerId, out var targetVillage))
-                return SilverActionResult.Fail("بازیکن هدف پیدا نشد.");
+        var targetCardId = action.TargetCardIds[0];
+        var targetCard = targetVillage.Cards.FirstOrDefault(c => c.CardId == targetCardId);
+        if (targetCard == null)
+            return SilverActionResult.Fail("کارت هدف پیدا نشد.");
 
-            var targetCardId = action.TargetCardIds[0];
-            var targetCard = targetVillage.Cards.FirstOrDefault(c => c.CardId == targetCardId);
-            if (targetCard == null)
-                return SilverActionResult.Fail("کارت هدف پیدا نشد.");
-            if (IsCardProtectedFromOthers(targetVillage, targetCardId, action.PlayerId))
-                return SilverActionResult.Fail("این کارت با Bodyguard محافظت می‌شود.");
+        // بادیگارد (کارت شماره ۳) تحت هیچ شرایطی قابل برداشتن نیست، چه رو باشه چه پشت،
+        // چه هدف خودِ بازیکن باشه چه بازیکن دیگه.
+        if (targetCard.Type == CardType.Bodyguard)
+            return SilverActionResult.Fail("کارت بادیگارد را نمی‌توان برداشت.");
 
-            state.DrawPile.RemoveAt(state.DrawPile.Count - 1);
+        // محافظت بادیگارد فقط وقتی معنی داره که داری به دهکده‌ی یکی دیگه دست‌درازی می‌کنی
+        if (IsCardProtectedFromOthers(targetVillage, targetCardId, action.PlayerId))
+            return SilverActionResult.Fail("این کارت با Bodyguard محافظت می‌شود.");
 
-            targetVillage.Cards.Remove(targetCard);
-            targetCard.IsPubliclyRevealed = true;
-            state.DiscardPile.Add(targetCard);
+        var givenCard = state.PendingWitchCard;
 
-            if (targetVillage.BodyguardProtectingCardId == targetCardId)
-                targetVillage.BodyguardProtectingCardId = null;
+        // کارتی که از دهکده حذف می‌شه، رو می‌شه و می‌سوزه
+        targetVillage.Cards.Remove(targetCard);
+        targetCard.IsPubliclyRevealed = true;
+        state.DiscardPile.Add(targetCard);
 
-            topOfDeck.IsPubliclyRevealed = false;
-            targetVillage.Cards.Add(topOfDeck);
-        }
+        if (targetVillage.BodyguardProtectingCardId == targetCardId)
+            targetVillage.BodyguardProtectingCardId = null;
 
+        // کارتی که جادوگر می‌ده، همیشه به‌پشت وارد دهکده می‌شه (حتی اگه گیرنده خودِ جادوگرزننده باشه)
+        givenCard.IsPubliclyRevealed = false;
+        targetVillage.Cards.Add(givenCard);
+
+        state.PendingWitchCard = null;
         ClearPendingAbility(state);
 
         if (CheckVillagerEndCondition(state))
@@ -849,6 +1023,11 @@ public class SilverGameEngine
         var targetCard = targetVillage.Cards.FirstOrDefault(c => c.CardId == action.TargetCardId);
         if (targetCard == null)
             return SilverActionResult.Fail("کارت هدف پیدا نشد.");
+
+        // بادیگارد (کارت شماره ۳) تحت هیچ شرایطی قابل دزدیدن نیست، چه رو باشه چه پشت.
+        if (targetCard.Type == CardType.Bodyguard)
+            return SilverActionResult.Fail("کارت بادیگارد را نمی‌توان دزدید.");
+
         if (IsCardProtectedFromOthers(targetVillage, action.TargetCardId, action.PlayerId))
             return SilverActionResult.Fail("این کارت با Bodyguard محافظت می‌شود.");
 
@@ -857,7 +1036,8 @@ public class SilverGameEngine
         if (ownCard == null)
             return SilverActionResult.Fail("کارت خودت پیدا نشد.");
 
-        // جابه‌جایی واقعی - هیچ‌کدوم به discard نمی‌رن، فقط جای فیزیکی عوض می‌شه
+        // جابه‌جایی واقعی - هیچ‌کدوم به discard نمی‌رن، فقط جای فیزیکی عوض می‌شه.
+        // وضعیت IsPubliclyRevealed هیچ‌کدوم دست‌کاری نمی‌شه؛ دقیقاً همون‌طور که بود می‌مونه.
         targetVillage.Cards.Remove(targetCard);
         ownVillage.Cards.Remove(ownCard);
 
@@ -869,18 +1049,52 @@ public class SilverGameEngine
         if (ownVillage.BodyguardProtectingCardId == ownCard.CardId)
             ownVillage.BodyguardProtectingCardId = null;
 
+        // فقط خودِ دزد یک‌بار نوع کارتی که گرفته رو می‌بینه (مکانیزم privateInfo قبلاً درست کار می‌کنه)
         var privateInfo = new Dictionary<string, CardType> { [targetCard.CardId] = targetCard.Type };
 
         ClearPendingAbility(state);
         AdvanceTurn(state);
         return SilverActionResult.Ok(state, privateInfo);
     }
+    private SilverActionResult HandleDeclareFinalRound(SilverGameState state, SilverAction action)
+    {
+        if (state.HasBeenCalled || state.IsFinalRoundDeclared)
+            return SilverActionResult.Fail("دور آخر قبلاً اعلام شده است.");
+
+        if (state.PendingDrawnCard != null)
+            return SilverActionResult.Fail("دیگه دیر شده؛ باید قبل از کشیدن کارت، دور آخر رو اعلام می‌کردی.");
+
+        state.IsFinalRoundDeclared = true;
+        state.FinalRoundDeclarerPlayerId = action.PlayerId;
+
+        AdvanceTurn(state);
+        return SilverActionResult.Ok(state);
+    }
+    private SilverActionResult HandleStartNextRound(SilverGameState state, StartNextRoundAction action)
+    {
+        if (state.Phase != GamePhase.RoundScoring)
+            return SilverActionResult.Fail("در حال حاضر امکان شروع دور جدید نیست.");
+
+        if (!state.Villages.ContainsKey(action.PlayerId))
+            return SilverActionResult.Fail("این بازیکن در بازی نیست.");
+
+        state.RoundNumber++;
+        StartNewRound(state, firstRound: false);
+
+        return SilverActionResult.Ok(state);
+    }
     private SilverActionResult HandleDrawFromDeck(SilverGameState state, SilverAction action)
     {
         if (state.DrawPile.Count == 0)
         {
-            EndRound(state, RoundEndReason.DrawPileEmpty);
-            return SilverActionResult.Ok(state);
+            if (state.SquireRevealedCards.Count == 0)
+            {
+                // هم دسته‌ی اصلی و هم کارت‌های کمکی تموم شدن؛ دور همین‌جا تموم می‌شه.
+                EndRound(state, RoundEndReason.CardsExhausted);
+                return SilverActionResult.Ok(state);
+            }
+
+            return SilverActionResult.Fail("دسته‌ی اصلی خالی است؛ می‌تونی از کارت‌های کمکی سمت راست بردار.");
         }
 
         var village = state.Villages[action.PlayerId];
@@ -893,7 +1107,7 @@ public class SilverGameEngine
             state.PendingDrawnCard = card;
             state.DrawnCardSource = PendingDrawnCardSource.Deck;
 
-            var privateInfo = new Dictionary<string, CardType> { [card.CardId] = card.Type }; // ← جدید
+            var privateInfo = new Dictionary<string, CardType> { [card.CardId] = card.Type };
             return SilverActionResult.Ok(state, privateInfo);
         }
 
@@ -903,7 +1117,7 @@ public class SilverGameEngine
 
         state.PendingRascalChoiceOptions = drawn;
 
-        var rascalPrivateInfo = drawn.ToDictionary(c => c.CardId, c => c.Type); // ← جدید: همه‌ی گزینه‌ها رو نشون بده
+        var rascalPrivateInfo = drawn.ToDictionary(c => c.CardId, c => c.Type);
         return SilverActionResult.Ok(state, rascalPrivateInfo);
     }
 
@@ -934,8 +1148,9 @@ public class SilverGameEngine
             return SilverActionResult.Fail("دسته‌ی دورریختنی خالی است.");
 
         var topCard = state.DiscardPile[^1];
+        state.DiscardPile.RemoveAt(state.DiscardPile.Count - 1); // ← حذف فوری از دسته، تا کارت زیری درست به‌عنوان بالایی نشون داده بشه
         state.PendingDrawnCard = topCard;
-        state.DrawnCardSource = PendingDrawnCardSource.Discard; // ← جدید
+        state.DrawnCardSource = PendingDrawnCardSource.Discard;
 
         return SilverActionResult.Ok(state); // نیازی به privateInfo نیست چون این کارت از قبل عمومیه
     }

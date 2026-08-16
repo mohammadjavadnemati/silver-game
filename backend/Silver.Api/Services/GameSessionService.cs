@@ -40,7 +40,8 @@ public class GameSessionService
 
         var result = _engine.ApplyAction(state, action);
 
-        if (result.Success && result.UpdatedState != null)
+        // حتی وقتی Fail شده، ممکنه state واقعاً تغییر کرده باشه (نوبت رد شده، کارت سوخته) - پس هر وقت UpdatedState داریم، سیوش کن
+        if (result.UpdatedState != null)
             await _store.SaveAsync(result.UpdatedState);
 
         return result;
@@ -78,44 +79,74 @@ public class GameSessionService
             playerIdsInTurnOrder = state.PlayerIdsInTurnOrder,
             cumulativeScores = state.CumulativeScores,
             hasBeenCalled = state.HasBeenCalled,
+            isFinalRoundDeclared = state.IsFinalRoundDeclared,
+            finalRoundDeclarerPlayerId = state.FinalRoundDeclarerPlayerId,
             callerPlayerId = state.CallerPlayerId,
             amuletHolderPlayerId = state.AmuletHolderPlayerId,
             drawPileCount = state.DrawPile.Count,
             discardPileTop = state.DiscardPile.Count > 0 ? MapCard(state.DiscardPile[^1], false) : null,
+            discardPile = state.DiscardPile.Select(c => MapCard(c, false)).ToList(),
             discardPileCount = state.DiscardPile.Count,
             squireRevealedCards = state.SquireRevealedCards.Select(c => MapCard(c, false)),
             pendingAbilityPlayerId = state.PendingAbilityPlayerId,
             pendingAbilityCardType = state.PendingAbilityCardType?.ToString(),
+            abilityUsedThisTurn = forPlayerId == state.PendingAbilityPlayerId && state.SeerPeekUsedThisAbility,
             drawnCardSource = state.DrawnCardSource.ToString(),
             // کارت کشیده‌شده فقط برای صاحبش با جزئیات کامل نشون داده می‌شه
-            pendingDrawnCard = state.PendingDrawnCard != null
-    ? (forPlayerId == state.CurrentPlayerId
-        ? new
-        {
-            cardId = state.PendingDrawnCard.CardId,
-            type = state.PendingDrawnCard.Type.ToString(),
-            value = (int?)state.PendingDrawnCard.Value,
-            isPubliclyRevealed = false
-        }
-        : new
-        {
-            cardId = state.PendingDrawnCard.CardId,
-            type = (string?)null,
-            value = (int?)null,
-            isPubliclyRevealed = false
-        })
+            pendingRascalChoiceOptions = (state.PendingRascalChoiceOptions != null && forPlayerId == state.CurrentPlayerId)
+    ? state.PendingRascalChoiceOptions.Select(c => new
+    {
+        cardId = c.CardId,
+        type = c.Type.ToString(),
+        value = (int?)c.Value,
+        isPubliclyRevealed = false
+    }).ToList()
     : null,
+            pendingDrawnCard = state.PendingDrawnCard != null
+
+            ? (forPlayerId == state.CurrentPlayerId
+                ? new
+                {
+                    cardId = state.PendingDrawnCard.CardId,
+                    type = state.PendingDrawnCard.Type.ToString(),
+                    value = (int?)state.PendingDrawnCard.Value,
+                    isPubliclyRevealed = false
+                }
+                : new
+                {
+                    cardId = state.PendingDrawnCard.CardId,
+                    type = (string?)null,
+                    value = (int?)null,
+                    isPubliclyRevealed = false
+                })
+            : null,
+            pendingWitchCard = (state.PendingAbilityCardType == CardType.Witch
+                     && forPlayerId == state.PendingAbilityPlayerId
+                     && state.PendingWitchCard != null)
+            ? new
+            {
+                cardId = state.PendingWitchCard.CardId,
+                type = state.PendingWitchCard.Type.ToString(),
+                value = (int?)state.PendingWitchCard.Value,
+                isPubliclyRevealed = false
+            }
+            : null,
             villages = state.Villages.ToDictionary(
                 kv => kv.Key,
                 kv => new
                 {
                     playerId = kv.Key,
                     bodyguardProtectingCardId = kv.Key == forPlayerId ? kv.Value.BodyguardProtectingCardId : null,
+                    amuletCoveredCardId = kv.Key == forPlayerId ? kv.Value.AmuletCoveredCardId : null,
                     cards = kv.Value.Cards.Select(c => MapCard(c, kv.Key == forPlayerId)).ToList()
                 }
             ),
+
             winnerPlayerId = state.WinnerPlayerId,
-            myInitialPeeksRemaining = SilverGameState.MaxInitialPeeksPerRound - state.InitialPeeksUsedByPlayer.GetValueOrDefault(forPlayerId, 0)
+            roundEndReason = state.RoundEndReason.ToString(),
+            lastRoundScores = state.LastRoundScores,
+            myInitialPeeksRemaining = SilverGameState.MaxInitialPeeksPerRound - state.InitialPeeksUsedByPlayer.GetValueOrDefault(forPlayerId, 0),
+            sideActionUsedThisTurn = forPlayerId == state.CurrentPlayerId && state.SideActionUsedThisTurn,
         };
     }
 }

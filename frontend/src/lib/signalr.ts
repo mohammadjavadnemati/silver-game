@@ -48,71 +48,92 @@ export function useGameConnection() {
   >({});
 
   useEffect(() => {
-    const connection = new signalR.HubConnectionBuilder()
-      .withUrl(HUB_URL)
-      .withAutomaticReconnect()
-      .configureLogging(signalR.LogLevel.Information)
-      .build();
+  let isUnmounted = false;
 
-    connectionRef.current = connection;
+  const connection = new signalR.HubConnectionBuilder()
+    .withUrl(HUB_URL)
+    .withAutomaticReconnect()
+    .configureLogging(signalR.LogLevel.Information)
+    .build();
 
-    connection.on("RoomUpdated", (updatedRoom: RoomInfo) => {
-      setRoom(updatedRoom);
-    });
+  connectionRef.current = connection;
 
-    connection.on("GameStateUpdated", (state: GameStateView) => {
-      setGameState(state);
-    });
+  connection.on("RoomUpdated", (updatedRoom: RoomInfo) => {
+    setRoom(updatedRoom);
+  });
 
-    connection.on(
-      "PrivateCardsRevealed",
-      (reveals: Record<string, PrivateReveal>) => {
-        setPrivateReveals((prev) => ({
-          ...prev,
-          ...reveals,
-        }));
-      }
-    );
+  connection.on("GameStateUpdated", (state: GameStateView) => {
+    setGameState(state);
+  });
 
-    connection.on("PrivateCardsExpired", () => {
-      setPrivateReveals({});
-    });
+  connection.on(
+    "PrivateCardsRevealed",
+    (reveals: Record<string, PrivateReveal>) => {
+      setPrivateReveals((prev) => ({
+        ...prev,
+        ...reveals,
+      }));
+    }
+  );
 
-    connection.onreconnecting(() => {
-      setStatus("connecting");
-    });
+  connection.on("PrivateCardsExpired", () => {
+    setPrivateReveals({});
+  });
 
-    connection.onreconnected(() => {
-      setStatus("connected");
-    });
+  connection.onreconnecting(() => {
+    if (!isUnmounted) setStatus("connecting");
+  });
 
-    connection.onclose(() => {
-      setStatus("disconnected");
-    });
+  connection.onreconnected(() => {
+    if (!isUnmounted) setStatus("connected");
+  });
 
-    setStatus("connecting");
+  connection.onclose(() => {
+    if (!isUnmounted) setStatus("disconnected");
+  });
 
-    connection
-      .start()
-      .then(() => {
+  setStatus("connecting");
+
+  connection
+    .start()
+    .then(() => {
+      if (!isUnmounted) {
         setStatus("connected");
-      })
-      .catch((error) => {
+      } else {
+        // کامپوننت قبل از تکمیل شدن اتصال unmount شده (StrictMode/Fast Refresh)؛
+        // همین‌جا با خیال راحت ببندش، بدون این‌که چیزی رو کرش کنه.
+        connection.stop().catch(() => {});
+      }
+    })
+    .catch((error) => {
+      if (!isUnmounted) {
         console.error("SignalR connection failed:", error);
         setStatus("disconnected");
-      });
+      }
+    });
 
-    return () => {
-      connection.off("RoomUpdated");
-      connection.off("GameStateUpdated");
-      connection.off("PrivateCardsRevealed");
-      connection.off("PrivateCardsExpired");
+  return () => {
+    isUnmounted = true;
 
-      connection.stop();
+    connection.off("RoomUpdated");
+    connection.off("GameStateUpdated");
+    connection.off("PrivateCardsRevealed");
+    connection.off("PrivateCardsExpired");
 
+    // اگه هنوز داره negotiate می‌کنه، stop() رو صدا نزن (باعث reject شدنِ start() با خطای
+    // "stopped during negotiation" می‌شه)؛ فقط وقتی connected/connecting واقعی شده ببندش.
+    if (
+      connection.state === signalR.HubConnectionState.Connected ||
+      connection.state === signalR.HubConnectionState.Reconnecting
+    ) {
+      connection.stop().catch(() => {});
+    }
+
+    if (connectionRef.current === connection) {
       connectionRef.current = null;
-    };
-  }, []);
+    }
+  };
+}, []);
 
   const createRoom = useCallback(async (playerName: string) => {
     const connection = connectionRef.current;

@@ -6,7 +6,9 @@ public enum RoundEndReason
     None,
     Call,
     DrawPileEmpty,
-    BothVillagersRevealed
+    BothVillagersRevealed,
+    FinalRoundDeclared,
+    CardsExhausted,
 }
 
 public enum GamePhase
@@ -63,8 +65,13 @@ public class SilverGameState
     public string? PendingAbilityCardId { get; set; }
     // این‌ها جایگزین دیکشنری‌های داخل موتور می‌شن:
     public SilverCard? PendingDrawnCard { get; set; }
+    public SilverCard? PendingWitchCard { get; set; }
     public List<SilverCard>? PendingRascalChoiceOptions { get; set; }
     public PendingDrawnCardSource DrawnCardSource { get; set; } = PendingDrawnCardSource.None;
+    public bool SeerPeekUsedThisAbility { get; set; }
+    public Dictionary<string, int> LastRoundScores { get; set; } = new();
+    public bool IsFinalRoundDeclared { get; set; }
+    public string? FinalRoundDeclarerPlayerId { get; set; }
     // اضافه کن (به‌جای اینکه فقط شمارنده داشته باشیم):
     // public DateTime? InitialPeekWindowEndsAt { get; set; }
     // public const int InitialPeekWindowSeconds = 10;
@@ -77,3 +84,10 @@ public enum PendingDrawnCardSource
     Discard,
     Squire
 }
+public SilverCard AmuletCard { get; init; } = new SilverCard
+{
+    CardId = "amulet-singleton",
+    Type = CardType.Amulet,
+    Value = 0,
+    IsPubliclyRevealed = true
+};

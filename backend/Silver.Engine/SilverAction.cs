@@ -42,11 +42,15 @@ public class SwapDiscardCardWithOwnAction : SilverAction
     public required List<string> OwnCardIdsToReplace { get; init; }
 }
 // --- اکشن‌های جانبی اختیاری (یک‌بار در نوبت، مستقل از Draw/Discard) ---
-
+public class DeclareFinalRoundAction : SilverAction
+{
+}
 public class UseEmpathAction : SilverAction
 {
-    public required string EmpathCardId { get; init; }   // کدوم Empath رو‌شده‌ی خودت استفاده می‌شه
-    public required string OwnCardIdToPeek { get; init; } // کدوم کارت خودتو می‌بینی
+    public required List<string> OwnCardIdsToPeek { get; init; } // به تعداد Empath‌های رو‌شده، هرکدوم یک کارت
+}
+public class StartNextRoundAction : SilverAction
+{
 }
 
 public class MoveBodyguardAction : SilverAction
@@ -68,11 +72,13 @@ public class ExposerRevealOwnCardAction : SilverAction
 {
     public required string OwnCardIdToReveal { get; init; }
 }
-
+public class SetAmuletProtectionAction : SilverAction
+{
+    public required string TargetOwnCardId { get; init; }
+}
 public class BeholderPeekAction : SilverAction
 {
-    public required string FirstOwnCardId { get; init; }
-    public required string SecondOwnCardId { get; init; }
+    public required List<string> OwnCardIds { get; init; } // باید ۱ یا ۲ تا کارت باشه
 }
 
 public class SkipCardAbilityAction : SilverAction { }
@@ -96,8 +102,8 @@ public class SeerPeekAction : SilverAction
 
 public class MasterSwapAction : SilverAction
 {
-    public required string DiscardCardId { get; init; } // هر کارتی از discard، نه فقط بالایی
-    public required List<string> OwnCardIdsToReplace { get; init; }
+    public required string DiscardCardId { get; init; }
+    public required string OwnCardId { get; init; }
 }
 
 public class WitchSwapAction : SilverAction

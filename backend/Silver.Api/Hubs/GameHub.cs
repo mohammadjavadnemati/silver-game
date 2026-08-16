@@ -67,8 +67,10 @@ public class GameHub : Hub
     /// سرور اکشن رو می‌سازه، اعتبارسنجی می‌کنه، و نتیجه رو broadcast می‌کنه.
     /// </summary>
     public async Task<object> SendGameAction(string roomCode, string actionType, Dictionary<string, object> payload)
+{
+    try
     {
-        var playerId = GetPlayerIdFromPayload(payload); // توضیح پایین
+        var playerId = GetPlayerIdFromPayload(payload);
 
         SilverAction? action = BuildAction(actionType, playerId, payload);
         if (action == null)
@@ -76,13 +78,21 @@ public class GameHub : Hub
 
         var result = await _gameSessionService.ApplyActionAsync(roomCode, action);
 
+        if (result.UpdatedState != null)
+        {
+            await BroadcastGameState(roomCode, result.UpdatedState, result.PrivatelyRevealedCards, forPlayerId: playerId);
+        }
+
         if (!result.Success)
             return new { success = false, error = result.ErrorMessage };
 
-        await BroadcastGameState(roomCode, result.UpdatedState!, result.PrivatelyRevealedCards, forPlayerId: playerId);
-
         return new { success = true };
     }
+    catch (Exception ex)
+    {
+        return new { success = false, error = $"خطای غیرمنتظره: {ex.Message}" };
+    }
+}
 
     private async Task BroadcastGameState(
         string roomCode,
@@ -99,12 +109,6 @@ public class GameHub : Hub
             var view = _gameSessionService.BuildPlayerFacingState(state, player.PlayerId, privateInfo);
             // myInitialPeeksRemaining = SilverGameState.MaxInitialPeeksPerRound - state.InitialPeeksUsedByPlayer.GetValueOrDefault(forPlayerId, 0);
             await Clients.Client(player.ConnectionId).SendAsync("GameStateUpdated", view);
-            if (player.PlayerId == forPlayerId && privateInfo != null && privateInfo.Count > 0)
-            {
-                var revealPayload = privateInfo.ToDictionary(kv => kv.Key, kv => new { type = kv.Value.ToString(), value = (int)kv.Value });
-                await Clients.Client(player.ConnectionId).SendAsync("PrivateCardsRevealed", revealPayload);
-            }
-            // در BroadcastGameState، بعد از فرستادن GameStateUpdated:
             if (player.PlayerId == forPlayerId && privateInfo != null && privateInfo.Count > 0)
             {
                 var revealPayload = privateInfo.ToDictionary(kv => kv.Key, kv => new { type = kv.Value.ToString(), value = (int)kv.Value });
@@ -133,10 +137,11 @@ public class GameHub : Hub
     {
         string S(string key) => p[key].ToString()!;
         List<string> L(string key) => ((System.Text.Json.JsonElement)p[key]).EnumerateArray().Select(x => x.GetString()!).ToList();
-
+        
         return actionType switch
         {
             "DrawFromDeck" => new DrawFromDeckAction { PlayerId = playerId },
+            "DeclareFinalRound" => new DeclareFinalRoundAction { PlayerId = playerId },
             "TakeFromDiscard" => new TakeFromDiscardAction { PlayerId = playerId },
             "TakeSquireCard" => new TakeSquireCardAction { PlayerId = playerId, SquireCardId = S("squireCardId") },
             "Call" => new CallAction { PlayerId = playerId },
@@ -144,18 +149,21 @@ public class GameHub : Hub
             "SwapDrawn" => new SwapDrawnCardWithOwnAction { PlayerId = playerId, DrawnCardId = S("drawnCardId"), OwnCardIdsToReplace = L("ownCardIds") },
             "SwapDiscard" => new SwapDiscardCardWithOwnAction { PlayerId = playerId, DiscardCardId = S("discardCardId"), OwnCardIdsToReplace = L("ownCardIds") },
             "ChooseFromRascalDraw" => new ChooseFromRascalDrawAction { PlayerId = playerId, ChosenCardId = S("chosenCardId") },
-            "UseEmpath" => new UseEmpathAction { PlayerId = playerId, EmpathCardId = S("empathCardId"), OwnCardIdToPeek = S("ownCardIdToPeek") },
+            // "UseEmpath" => new UseEmpathAction { PlayerId = playerId, EmpathCardId = S("empathCardId"), OwnCardIdToPeek = S("ownCardIdToPeek") },
+            "UseEmpath" => new UseEmpathAction { PlayerId = playerId, OwnCardIdsToPeek = L("ownCardIds") },
             "MoveBodyguard" => new MoveBodyguardAction { PlayerId = playerId, BodyguardCardId = S("bodyguardCardId"), TargetOwnCardId = p.ContainsKey("targetOwnCardId") ? S("targetOwnCardId") : null },
             "ExposerReveal" => new ExposerRevealOwnCardAction { PlayerId = playerId, OwnCardIdToReveal = S("ownCardIdToReveal") },
-            "BeholderPeek" => new BeholderPeekAction { PlayerId = playerId, FirstOwnCardId = S("firstOwnCardId"), SecondOwnCardId = S("secondOwnCardId") },
+            "BeholderPeek" => new BeholderPeekAction { PlayerId = playerId, OwnCardIds = L("ownCardIds") },
             "RevealerReveal" => new RevealerRevealCardAction { PlayerId = playerId, TargetPlayerId = S("targetPlayerId"), TargetCardId = S("targetCardId") },
             "ApprenticeSeerPeek" => new ApprenticeSeerPeekAction { PlayerId = playerId, TargetPlayerId = S("targetPlayerId"), TargetCardId = S("targetCardId") },
             "SeerPeek" => new SeerPeekAction { PlayerId = playerId, TargetPlayerId = S("targetPlayerId"), TargetCardId = S("targetCardId") },
-            "MasterSwap" => new MasterSwapAction { PlayerId = playerId, DiscardCardId = S("discardCardId"), OwnCardIdsToReplace = L("ownCardIds") },
+            "MasterSwap" => new MasterSwapAction { PlayerId = playerId, DiscardCardId = S("discardCardId"), OwnCardId = S("ownCardId") },
             "WitchSwap" => new WitchSwapAction { PlayerId = playerId, TargetPlayerId = S("targetPlayerId"), TargetCardIds = L("targetCardIds") },
             "RobberSwap" => new RobberSwapAction { PlayerId = playerId, TargetPlayerId = S("targetPlayerId"), TargetCardId = S("targetCardId"), OwnCardId = S("ownCardId") },
             "SkipAbility" => new SkipCardAbilityAction { PlayerId = playerId },
             "InitialPeek" => new InitialCardPeekAction { PlayerId = playerId, OwnCardId = S("ownCardId") },
+            "StartNextRound" => new StartNextRoundAction { PlayerId = playerId },
+            "SetAmuletProtection" => new SetAmuletProtectionAction { PlayerId = playerId, TargetOwnCardId = S("targetOwnCardId") },
             _ => null
         };
     }
